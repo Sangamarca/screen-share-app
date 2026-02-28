@@ -9,161 +9,182 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: "*", // Permite cualquier origen
+    origin: "*",
     methods: ["GET", "POST"],
     credentials: true
   },
-  // Configuración para conexiones lentas (móvil)
+  // Configuración para conexiones inestables
   pingTimeout: 60000,
-  pingInterval: 25000
+  pingInterval: 25000,
+  transports: ['websocket', 'polling']
 });
 
-// Middleware mejorado
+// Middleware
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST'],
   allowedHeaders: ['Content-Type']
 }));
+app.use(express.json());
+app.use(express.static(path.join(__dirname, '../public')));
 
-// Servir archivos estáticos con caché
-app.use(express.static(path.join(__dirname, '../public'), {
-  maxAge: '1d',
-  etag: true,
-  lastModified: true,
-  setHeaders: (res, path) => {
-    if (path.endsWith('.html')) {
-      res.setHeader('Cache-Control', 'no-cache');
-    }
-  }
-}));
+// Mapa de conexiones para la solución adicional
+const connections = new Map();
 
-// Detectar dispositivo del usuario
-app.use((req, res, next) => {
-  const userAgent = req.headers['user-agent'];
-  req.device = {
-    isMobile: /mobile|android|iphone|ipad|ipod/i.test(userAgent),
-    isTV: /tv|smart-tv|googletv|appletv|roku/i.test(userAgent),
-    isTablet: /tablet|ipad|playbook|silk/i.test(userAgent),
-    isPC: !/mobile|android|iphone|ipad|ipod|tv|smart-tv/i.test(userAgent)
-  };
-  next();
+// Mapa de salas con información mejorada
+const rooms = new Map(); // roomId -> { broadcaster: socketId, viewers: Set, createdAt, lastActivity }
+
+// Ruta de salud para verificar que el servidor funciona
+app.get('/api/health', (req, res) => {
+  res.json({ 
+    status: 'ok', 
+    message: 'Servidor funcionando',
+    time: new Date().toISOString(),
+    activeRooms: rooms.size,
+    activeConnections: connections.size
+  });
 });
 
-// Ruta principal con detección de dispositivo
+// Ruta principal
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, '../public/index.html'));
 });
 
-// API para obtener configuración según dispositivo
-app.get('/api/config', (req, res) => {
-  res.json({
-    device: req.device,
-    serverTime: new Date().toISOString(),
-    recommendedQuality: req.device.isMobile ? '480p' : (req.device.isTV ? '1080p' : '720p'),
-    socketUrl: getServerUrl()
-  });
+// API para obtener salas activas
+app.get('/api/rooms', (req, res) => {
+  const activeRooms = Array.from(rooms.entries()).map(([id, room]) => ({
+    id,
+    viewers: room.viewers.size,
+    broadcaster: room.broadcaster ? true : false,
+    createdAt: room.createdAt,
+    lastActivity: room.lastActivity,
+    deviceType: room.deviceType
+  }));
+  res.json(activeRooms);
 });
-
-// Almacenar información de las salas (mejorado)
-const rooms = new Map();
-
-// Función para obtener IP del servidor
-function getServerUrl() {
-  const interfaces = os.networkInterfaces();
-  for (const name of Object.keys(interfaces)) {
-    for (const iface of interfaces[name]) {
-      if (iface.family === 'IPv4' && !iface.internal) {
-        return `http://${iface.address}:${PORT}`;
-      }
-    }
-  }
-  return `http://localhost:${PORT}`;
-}
 
 // Configuración de Socket.IO mejorada
 io.on('connection', (socket) => {
-  console.log(`🟢 Nuevo cliente conectado: ${socket.id} - IP: ${socket.handshake.address}`);
+  const clientAddress = socket.handshake.address;
+  console.log(`🟢 Nuevo cliente conectado: ${socket.id} - IP: ${clientAddress}`);
 
-  // Detectar tipo de dispositivo del cliente
+  // Guardar en el mapa de conexiones (solución adicional)
+  connections.set(socket.id, {
+    id: socket.id,
+    connectedAt: new Date(),
+    lastActivity: new Date(),
+    ip: clientAddress
+  });
+
+  // Detectar tipo de dispositivo (opcional)
   const userAgent = socket.handshake.headers['user-agent'];
   const deviceType = detectDeviceType(userAgent);
-  console.log(`📱 Tipo de dispositivo: ${deviceType}`);
+  console.log(`📱 Dispositivo: ${deviceType}`);
 
-  // Unirse como broadcaster
+  // PING/PONG para mantener conexión
+  socket.on('ping', () => {
+    socket.emit('pong');
+    // Actualizar última actividad
+    const conn = connections.get(socket.id);
+    if (conn) {
+      conn.lastActivity = new Date();
+    }
+  });
+
+  // Unirse como broadcaster (transmisor)
   socket.on('broadcaster-join', (roomId) => {
     console.log(`📡 Broadcaster ${socket.id} unido a sala: ${roomId} [${deviceType}]`);
     
-    // Dejar salas anteriores
+    // Dejar cualquier sala anterior
     socket.rooms.forEach(room => {
       if (room !== socket.id) socket.leave(room);
     });
     
+    // Unirse a la nueva sala
     socket.join(roomId);
     
+    // Guardar información del broadcaster
     if (!rooms.has(roomId)) {
       rooms.set(roomId, {
         broadcaster: socket.id,
-        viewers: new Map(), // Ahora guardamos información de cada viewer
+        viewers: new Set(),
         createdAt: new Date(),
+        lastActivity: new Date(),
         deviceType: deviceType
       });
     } else {
       const room = rooms.get(roomId);
-      if (room.broadcaster) {
-        io.to(room.broadcaster).emit('broadcaster-disconnected');
+      // Si ya hay un broadcaster, lo reemplazamos y notificamos
+      if (room.broadcaster && room.broadcaster !== socket.id) {
+        io.to(room.broadcaster).emit('broadcaster-disconnected', {
+          reason: 'replaced',
+          message: 'Otro transmisor inició en esta sala'
+        });
       }
       room.broadcaster = socket.id;
+      room.lastActivity = new Date();
       room.deviceType = deviceType;
     }
     
+    // Notificar que el broadcaster está listo
     socket.emit('broadcaster-ready', {
       roomId,
-      serverUrl: getServerUrl()
+      message: 'Listo para transmitir'
     });
     
-    // Emitir lista actualizada de viewers
+    // Emitir lista actualizada de viewers al broadcaster
     updateViewerList(roomId);
+    
+    // Actualizar última actividad
+    const conn = connections.get(socket.id);
+    if (conn) {
+      conn.lastActivity = new Date();
+      conn.room = roomId;
+      conn.role = 'broadcaster';
+    }
   });
 
-  // Unirse como viewer (mejorado)
-  socket.on('viewer-join', (data) => {
-    const { roomId, deviceInfo = {} } = data;
+  // Unirse como viewer (espectador)
+  socket.on('viewer-join', (roomId) => {
     console.log(`👁️ Viewer ${socket.id} intentando unirse a sala: ${roomId} [${deviceType}]`);
     
     const room = rooms.get(roomId);
     
     if (room && room.broadcaster) {
+      // Unir al viewer a la sala
       socket.join(roomId);
-      
-      // Guardar información del viewer
-      room.viewers.set(socket.id, {
-        id: socket.id,
-        deviceType: deviceType,
-        joinedAt: new Date(),
-        userAgent: userAgent
-      });
+      room.viewers.add(socket.id);
+      room.lastActivity = new Date();
       
       console.log(`✅ Viewer ${socket.id} unido a sala ${roomId}. Total viewers: ${room.viewers.size}`);
       
-      // Notificar al broadcaster
+      // Notificar al broadcaster que hay un nuevo viewer
       io.to(room.broadcaster).emit('viewer-joined', {
         viewerId: socket.id,
         deviceType: deviceType,
         totalViewers: room.viewers.size
       });
       
-      // Enviar configuración adaptada al dispositivo
+      // Confirmar al viewer que se unió
       socket.emit('room-joined', {
         roomId,
         broadcasterId: room.broadcaster,
         deviceType: deviceType,
-        recommendedQuality: getQualityForDevice(deviceType),
         totalViewers: room.viewers.size
       });
       
       // Actualizar lista de viewers para todos
       updateViewerList(roomId);
+      
+      // Actualizar última actividad
+      const conn = connections.get(socket.id);
+      if (conn) {
+        conn.lastActivity = new Date();
+        conn.room = roomId;
+        conn.role = 'viewer';
+      }
     } else {
+      console.log(`❌ Sala ${roomId} no encontrada o sin broadcaster`);
       socket.emit('room-error', {
         message: 'La sala no existe o no hay transmisión activa',
         code: 'ROOM_NOT_FOUND'
@@ -171,21 +192,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Ofrecer diferentes calidades según dispositivo
-  socket.on('request-quality', (data) => {
-    const { roomId, quality } = data;
-    const room = rooms.get(roomId);
-    
-    if (room && room.broadcaster === socket.id) {
-      // El broadcaster ajusta la calidad según la petición
-      io.to(roomId).emit('quality-adjusted', {
-        quality,
-        by: socket.id
-      });
-    }
-  });
-
-  // Manejar oferta WebRTC
+  // Manejar oferta WebRTC (del broadcaster al viewer)
   socket.on('offer', (data) => {
     console.log(`📤 Oferta de ${socket.id} para ${data.target}`);
     io.to(data.target).emit('offer', {
@@ -195,7 +202,7 @@ io.on('connection', (socket) => {
     });
   });
 
-  // Manejar respuesta WebRTC
+  // Manejar respuesta WebRTC (del viewer al broadcaster)
   socket.on('answer', (data) => {
     console.log(`📥 Respuesta de ${socket.id} para ${data.target}`);
     io.to(data.target).emit('answer', {
@@ -220,12 +227,15 @@ io.on('connection', (socket) => {
     
     const room = rooms.get(roomId);
     if (room && room.broadcaster === socket.id) {
+      // Notificar a todos los viewers
       io.to(roomId).emit('broadcast-ended', {
         reason: 'broadcaster_stopped',
         message: 'La transmisión ha finalizado'
       });
       
+      // Limpiar la sala
       rooms.delete(roomId);
+      console.log(`🗑️ Sala ${roomId} eliminada`);
     }
   });
 
@@ -234,7 +244,7 @@ io.on('connection', (socket) => {
     const activeRooms = Array.from(rooms.entries()).map(([id, room]) => ({
       id,
       viewers: room.viewers.size,
-      broadcaster: room.broadcaster,
+      broadcaster: room.broadcaster ? true : false,
       createdAt: room.createdAt,
       deviceType: room.deviceType
     }));
@@ -242,24 +252,34 @@ io.on('connection', (socket) => {
     socket.emit('active-rooms', activeRooms);
   });
 
-  // Manejar desconexión (mejorado)
-  socket.on('disconnect', () => {
-    console.log(`🔴 Cliente desconectado: ${socket.id}`);
+  // Manejar desconexión (mejorado con la solución adicional)
+  socket.on('disconnect', (reason) => {
+    console.log(`🔴 Cliente desconectado: ${socket.id} - Razón: ${reason}`);
     
-    // Buscar en todas las salas
+    // Eliminar del mapa de conexiones (solución adicional)
+    connections.delete(socket.id);
+    
+    // Buscar si el socket desconectado era un broadcaster
     for (const [roomId, room] of rooms.entries()) {
       if (room.broadcaster === socket.id) {
         console.log(`📡 Broadcaster ${socket.id} desconectado de sala ${roomId}`);
+        
+        // Notificar a todos los viewers
         io.to(roomId).emit('broadcaster-disconnected', {
           reason: 'broadcaster_left',
           message: 'El transmisor se ha desconectado'
         });
+        
+        // Eliminar la sala
         rooms.delete(roomId);
+        console.log(`🗑️ Sala ${roomId} eliminada por desconexión del broadcaster`);
         break;
       }
       
-      if (room.viewers.has(socket.id)) {
+      // Si era un viewer, quitarlo de la sala
+      if (room.viewers && room.viewers.has(socket.id)) {
         room.viewers.delete(socket.id);
+        room.lastActivity = new Date();
         console.log(`👁️ Viewer ${socket.id} removido de sala ${roomId}. Viewers restantes: ${room.viewers.size}`);
         
         // Notificar al broadcaster
@@ -270,52 +290,25 @@ io.on('connection', (socket) => {
           });
         }
         
+        // Actualizar lista de viewers
         updateViewerList(roomId);
         break;
       }
     }
   });
+
+  // Manejar errores
+  socket.on('error', (error) => {
+    console.error(`❌ Error en socket ${socket.id}:`, error);
+  });
 });
 
-// Funciones auxiliares
-function detectDeviceType(userAgent) {
-  if (!userAgent) return 'unknown';
-  userAgent = userAgent.toLowerCase();
-  
-  if (userAgent.includes('tv') || userAgent.includes('smart-tv') || 
-      userAgent.includes('googletv') || userAgent.includes('appletv') || 
-      userAgent.includes('roku')) {
-    return 'tv';
-  }
-  if (userAgent.includes('tablet') || userAgent.includes('ipad') || 
-      userAgent.includes('playbook') || userAgent.includes('silk')) {
-    return 'tablet';
-  }
-  if (userAgent.includes('mobile') || userAgent.includes('android') || 
-      userAgent.includes('iphone') || userAgent.includes('ipod')) {
-    return 'mobile';
-  }
-  return 'pc';
-}
-
-function getQualityForDevice(deviceType) {
-  const qualities = {
-    tv: { width: 1920, height: 1080, bitrate: 2500000 },
-    pc: { width: 1280, height: 720, bitrate: 1500000 },
-    tablet: { width: 854, height: 480, bitrate: 1000000 },
-    mobile: { width: 640, height: 360, bitrate: 500000 },
-    unknown: { width: 854, height: 480, bitrate: 1000000 }
-  };
-  return qualities[deviceType] || qualities.unknown;
-}
-
+// Función para actualizar la lista de viewers en una sala
 function updateViewerList(roomId) {
   const room = rooms.get(roomId);
   if (room && room.broadcaster) {
-    const viewersList = Array.from(room.viewers.values()).map(v => ({
-      id: v.id,
-      deviceType: v.deviceType,
-      joinedAt: v.joinedAt
+    const viewersList = Array.from(room.viewers).map(viewerId => ({
+      id: viewerId
     }));
     
     io.to(roomId).emit('viewers-update', {
@@ -325,23 +318,76 @@ function updateViewerList(roomId) {
   }
 }
 
-// Configuración del puerto
-const PORT = process.env.PORT || 3000;
-const HOST = '0.0.0.0';
-
-server.listen(PORT, HOST, () => {
-  console.log(`
-  🚀 SERVIDOR DE TRANSMISIÓN GLOBAL
-  ════════════════════════════════
-  📡 Puerto: ${PORT}
-  🌐 Acceso local: http://localhost:${PORT}
-  📱 Red local: http://${getLocalIP()}:${PORT}
+// Función para detectar tipo de dispositivo (simplificada)
+function detectDeviceType(userAgent) {
+  if (!userAgent) return 'unknown';
+  userAgent = userAgent.toLowerCase();
   
-  📢 IMPORTANTE: Para acceso desde INTERNET:
-  ${getPublicAccessInstructions()}
-  `);
+  if (userAgent.includes('tv') || userAgent.includes('smart-tv') || 
+      userAgent.includes('googletv') || userAgent.includes('appletv')) {
+    return 'tv';
+  }
+  if (userAgent.includes('tablet') || userAgent.includes('ipad')) {
+    return 'tablet';
+  }
+  if (userAgent.includes('mobile') || userAgent.includes('android') || 
+      userAgent.includes('iphone') || userAgent.includes('ipod')) {
+    return 'mobile';
+  }
+  return 'pc';
+}
+
+// Limpieza periódica de salas inactivas (cada 5 minutos)
+setInterval(() => {
+  const now = new Date();
+  
+  // Limpiar salas inactivas
+  for (const [roomId, room] of rooms.entries()) {
+    // Si la sala tiene más de 1 hora sin actividad, eliminarla
+    if (now - room.lastActivity > 3600000) {
+      console.log(`🧹 Limpiando sala inactiva: ${roomId}`);
+      io.to(roomId).emit('broadcast-ended', {
+        reason: 'timeout',
+        message: 'Sala cerrada por inactividad'
+      });
+      rooms.delete(roomId);
+    }
+  }
+  
+  // Limpiar conexiones antiguas (solución adicional)
+  for (const [id, conn] of connections.entries()) {
+    // Si la conexión tiene más de 2 horas sin actividad, eliminarla del mapa
+    if (now - conn.lastActivity > 7200000) {
+      console.log(`🧹 Limpiando conexión antigua: ${id}`);
+      connections.delete(id);
+    }
+  }
+}, 300000); // 5 minutos
+
+// Endpoint para ver estadísticas de conexiones (solución adicional)
+app.get('/api/stats', (req, res) => {
+  res.json({
+    activeConnections: connections.size,
+    activeRooms: rooms.size,
+    connections: Array.from(connections.values()).map(c => ({
+      id: c.id,
+      connectedAt: c.connectedAt,
+      lastActivity: c.lastActivity,
+      role: c.role || 'unknown',
+      room: c.room || 'none'
+    })),
+    rooms: Array.from(rooms.entries()).map(([id, room]) => ({
+      id,
+      broadcaster: room.broadcaster,
+      viewers: room.viewers.size,
+      createdAt: room.createdAt,
+      lastActivity: room.lastActivity,
+      deviceType: room.deviceType
+    }))
+  });
 });
 
+// Obtener IP local para mostrar
 function getLocalIP() {
   const interfaces = os.networkInterfaces();
   for (const name of Object.keys(interfaces)) {
@@ -354,23 +400,41 @@ function getLocalIP() {
   return '127.0.0.1';
 }
 
-function getPublicAccessInstructions() {
-  return `
-  🔧 OPCIONES DE ACCESO PÚBLICO:
+// Puerto - CRÍTICO: Usar process.env.PORT para Railway
+const PORT = process.env.PORT || 3000;
+const HOST = '0.0.0.0';
+
+server.listen(PORT, HOST, () => {
+  console.log(`
+  🚀 SERVIDOR DE TRANSMISIÓN INICIADO
+  ═══════════════════════════════════
+  📡 Puerto: ${PORT}
+  🌐 Host: ${HOST}
+  💻 Local: http://localhost:${PORT}
+  🌍 Red local: http://${getLocalIP()}:${PORT}
   
-  1️⃣ LOCAL TUNNEL (Recomendado):
-     $ npm install -g localtunnel
-     $ lt --port ${PORT} --subdomain tunombre
+  📊 Salas activas: 0
+  🔌 Conexiones: 0
+  ⏰ ${new Date().toLocaleString()}
   
-  2️⃣ NGROK:
-     $ ngrok http ${PORT}
-  
-  3️⃣ SERVIDOR EN LA NUBE:
-     • Desplegar en Railway.app, Heroku, o DigitalOcean
-     • Configurar dominio propio
-  
-  4️⃣ COMPARTIR RED LOCAL:
-     • Misma WiFi: http://${getLocalIP()}:${PORT}
-     • Crear hotspot desde el celular
-  `;
-}
+  ✅ Servidor listo para recibir conexiones
+  ✅ Solución adicional de reconexión activada
+  `);
+});
+
+// Manejar cierre graceful
+process.on('SIGTERM', () => {
+  console.log('👋 Recibida señal SIGTERM, cerrando servidor...');
+  server.close(() => {
+    console.log('✅ Servidor cerrado');
+    process.exit(0);
+  });
+});
+
+process.on('SIGINT', () => {
+  console.log('👋 Recibida señal SIGINT, cerrando servidor...');
+  server.close(() => {
+    console.log('✅ Servidor cerrado');
+    process.exit(0);
+  });
+});
