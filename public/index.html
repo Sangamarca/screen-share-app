@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
+    <title>ScreenShare Global - Transmisión en Vivo Multiplataforma</title>
+    <link rel="stylesheet" href="style.css">
+    <meta name="description" content="Comparte tu pantalla desde cualquier dispositivo">
+    <meta name="theme-color" content="#667eea">
+    
+    <!-- Para TV y dispositivos grandes -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+    
+    <!-- Iconos para diferentes dispositivos -->
+    <link rel="apple-touch-icon" href="icon.png">
+    <link rel="icon" type="image/png" href="favicon.png">
+</head>
+<body>
+    <div class="app-container">
+        <header class="app-header">
+            <div class="header-content">
+                <h1>📺 ScreenShare <span class="badge">Global</span></h1>
+                <p class="subtitle">Comparte tu pantalla en vivo desde cualquier dispositivo</p>
+                <div class="device-info" id="deviceInfo">
+                    Detectando dispositivo...
+                </div>
+            </div>
+            
+            <div class="connection-status" id="connectionStatus">
+                <span class="status-indicator"></span>
+                <span id="statusText">Conectando...</span>
+            </div>
+        </header>
+
+        <main>
+            <!-- Selector de salas activas -->
+            <div class="rooms-panel" id="roomsPanel">
+                <h3>📡 Salas activas</h3>
+                <div id="activeRooms" class="rooms-list">
+                    <div class="loading-rooms">Cargando salas...</div>
+                </div>
+            </div>
+
+            <!-- Controles principales -->
+            <div class="control-panel">
+                <div class="panel-section broadcaster-section">
+                    <h2>🎥 Quiero transmitir</h2>
+                    <div class="input-group">
+                        <input 
+                            type="text" 
+                            id="roomId" 
+                            placeholder="Nombre de tu sala" 
+                            value="sala-" + Math.random().toString(36).substring(7)
+                            class="room-input"
+                        >
+                        <button id="startBtn" class="btn btn-primary btn-large">
+                            <span class="icon">🎬</span>
+                            Iniciar Transmisión
+                        </button>
+                        <button id="stopBtn" class="btn btn-danger btn-large" disabled>
+                            <span class="icon">⏹️</span>
+                            Detener
+                        </button>
+                    </div>
+                    <div class="quality-selector" id="qualitySelector" style="display: none;">
+                        <label>Calidad de transmisión:</label>
+                        <select id="qualitySelect">
+                            <option value="auto">Automática (según viewers)</option>
+                            <option value="1080p">1080p (TV)</option>
+                            <option value="720p">720p (PC)</option>
+                            <option value="480p">480p (Tablet)</option>
+                            <option value="360p">360p (Móvil)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="panel-section viewer-section">
+                    <h2>👁️ Quiero ver</h2>
+                    <div class="input-group">
+                        <input 
+                            type="text" 
+                            id="viewRoomId" 
+                            placeholder="Nombre de la sala" 
+                            class="room-input"
+                        >
+                        <button id="joinBtn" class="btn btn-success btn-large">
+                            <span class="icon">👀</span>
+                            Unirse
+                        </button>
+                        <button id="leaveBtn" class="btn btn-secondary btn-large" disabled>
+                            <span class="icon">🚪</span>
+                            Salir
+                        </button>
+                    </div>
+                    
+                    <!-- Opciones de calidad para viewer -->
+                    <div class="viewer-options" id="viewerOptions" style="display: none;">
+                        <label>Calidad de video:</label>
+                        <div class="quality-buttons">
+                            <button class="quality-btn active" data-quality="auto">Auto</button>
+                            <button class="quality-btn" data-quality="high">Alta</button>
+                            <button class="quality-btn" data-quality="medium">Media</button>
+                            <button class="quality-btn" data-quality="low">Baja</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Área de video adaptable -->
+            <div class="video-area">
+                <div class="video-card local-video">
+                    <div class="video-header">
+                        <h3>📤 Tu transmisión</h3>
+                        <span class="device-badge" id="localDeviceBadge">PC</span>
+                    </div>
+                    <div class="video-wrapper">
+                        <video id="localVideo" autoplay playsinline muted></video>
+                        <div class="video-overlay" id="localOverlay">
+                            <span>No hay transmisión local</span>
+                        </div>
+                    </div>
+                    <div class="video-stats" id="localStats"></div>
+                </div>
+
+                <div class="video-card remote-video">
+                    <div class="video-header">
+                        <h3>📥 Transmisión remota</h3>
+                        <span class="device-badge" id="remoteDeviceBadge">-</span>
+                        <span class="viewer-count" id="viewerCount">0 espectadores</span>
+                    </div>
+                    <div class="video-wrapper">
+                        <video id="remoteVideo" autoplay playsinline></video>
+                        <div class="video-overlay" id="remoteOverlay">
+                            <span>Esperando transmisión...</span>
+                        </div>
+                    </div>
+                    <div class="video-stats" id="remoteStats"></div>
+                </div>
+            </div>
+
+            <!-- Panel de espectadores (útil para TV) -->
+            <div class="viewers-panel" id="viewersPanel" style="display: none;">
+                <h3>👥 Espectadores conectados</h3>
+                <div id="viewersList" class="viewers-list"></div>
+            </div>
+
+            <!-- Logs y debug (visible en PC, colapsable en móvil) -->
+            <div class="debug-panel" id="debugPanel">
+                <div class="debug-header" onclick="toggleDebug()">
+                    <h4>🔧 Información técnica</h4>
+                    <span class="toggle-icon">▼</span>
+                </div>
+                <div class="debug-content" id="debugContent">
+                    <div id="connectionLog" class="log-container"></div>
+                </div>
+            </div>
+        </main>
+
+        <footer class="app-footer">
+            <p>ScreenShare Global - Compatible con PC, Móvil, Tablet y TV</p>
+            <p class="small">WebRTC - Streaming en tiempo real</p>
+        </footer>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="client.js"></script>
+</body>
+</html>
