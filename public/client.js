@@ -1,62 +1,35 @@
 // ============================================
-// VERSIÓN HIPER-SIMPLIFICADA - 100% FUNCIONAL
+// VERSIÓN PARA MÓVIL - CORREGIDA
 // ============================================
+console.log('🚀 Cliente iniciado - Versión móvil');
 
-console.log('🚀 Cliente iniciando...');
-
-// ============================================
-// ESPERAR A QUE EL DOM ESTÉ COMPLETAMENTE CARGADO
-// ============================================
+// Esperar a que el DOM esté listo
 document.addEventListener('DOMContentLoaded', function() {
-    console.log('✅ DOM completamente cargado');
+    console.log('✅ DOM listo');
     
     // ============================================
-    // 1. OBTENER TODOS LOS ELEMENTOS DEL DOM
+    // OBTENER ELEMENTOS
     // ============================================
-    const localVideo = document.getElementById('localVideo');
-    const remoteVideo = document.getElementById('remoteVideo');
-    const startBtn = document.getElementById('startBtn');
-    const stopBtn = document.getElementById('stopBtn');
-    const joinBtn = document.getElementById('joinBtn');
-    const leaveBtn = document.getElementById('leaveBtn');
-    const roomId = document.getElementById('roomId');
-    const viewRoomId = document.getElementById('viewRoomId');
-    const localOverlay = document.getElementById('localOverlay');
-    const remoteOverlay = document.getElementById('remoteOverlay');
-    const viewerCount = document.getElementById('viewerCount');
-    const deviceInfo = document.getElementById('deviceInfo');
+    const elements = {
+        localVideo: document.getElementById('localVideo'),
+        remoteVideo: document.getElementById('remoteVideo'),
+        startBtn: document.getElementById('startBtn'),
+        stopBtn: document.getElementById('stopBtn'),
+        joinBtn: document.getElementById('joinBtn'),
+        leaveBtn: document.getElementById('leaveBtn'),
+        roomId: document.getElementById('roomId'),
+        viewRoomId: document.getElementById('viewRoomId'),
+        localOverlay: document.getElementById('localOverlay'),
+        remoteOverlay: document.getElementById('remoteOverlay'),
+        viewerCount: document.getElementById('viewerCount'),
+        deviceInfo: document.getElementById('deviceInfo'),
+        statusText: document.getElementById('statusText')
+    };
     
-    console.log('✅ Elementos obtenidos:', { 
-        startBtn: !!startBtn, 
-        stopBtn: !!stopBtn, 
-        joinBtn: !!joinBtn, 
-        leaveBtn: !!leaveBtn 
-    });
+    console.log('✅ Elementos obtenidos');
     
     // ============================================
-    // 2. DETECTAR DISPOSITIVO (FUNCIÓN SIMPLE)
-    // ============================================
-    function detectDevice() {
-        const ua = navigator.userAgent.toLowerCase();
-        let type = 'PC';
-        
-        if (ua.includes('mobile') || ua.includes('android') || ua.includes('iphone')) {
-            type = 'MÓVIL';
-        } else if (ua.includes('tablet') || ua.includes('ipad')) {
-            type = 'TABLET';
-        } else if (ua.includes('tv') || ua.includes('smart-tv')) {
-            type = 'TV';
-        }
-        
-        if (deviceInfo) {
-            deviceInfo.textContent = `📱 ${type}`;
-        }
-        
-        return type;
-    }
-    
-    // ============================================
-    // 3. CONFIGURACIÓN
+    // CONFIGURACIÓN
     // ============================================
     const configuration = {
         iceServers: [
@@ -64,7 +37,7 @@ document.addEventListener('DOMContentLoaded', function() {
         ]
     };
     
-    // Estado de la aplicación
+    // Estado
     let socket = null;
     let localStream = null;
     let peerConnection = null;
@@ -72,15 +45,24 @@ document.addEventListener('DOMContentLoaded', function() {
     let isBroadcaster = false;
     
     // ============================================
-    // 4. FUNCIONES DE UTILIDAD
+    // FUNCIONES UTILIDAD
     // ============================================
     function log(msg) {
         console.log(`[${new Date().toLocaleTimeString()}] ${msg}`);
     }
     
-    function showNotification(msg, type) {
-        console.log(`🔔 ${type}: ${msg}`);
-        alert(msg); // Simple y efectivo para pruebas
+    function showMessage(msg, isError = false) {
+        // Mostrar como alert si es error importante
+        if (isError) {
+            alert(String(msg)); // Convertir a string
+        } else {
+            console.log('📢', msg);
+        }
+        
+        // Actualizar estado si existe
+        if (elements.statusText) {
+            elements.statusText.textContent = String(msg);
+        }
     }
     
     function resetUI() {
@@ -94,22 +76,44 @@ document.addEventListener('DOMContentLoaded', function() {
             peerConnection = null;
         }
         
-        if (localVideo) localVideo.srcObject = null;
-        if (remoteVideo) remoteVideo.srcObject = null;
-        if (localOverlay) localOverlay.style.display = 'flex';
-        if (remoteOverlay) remoteOverlay.style.display = 'flex';
+        if (elements.localVideo) elements.localVideo.srcObject = null;
+        if (elements.remoteVideo) elements.remoteVideo.srcObject = null;
+        if (elements.localOverlay) elements.localOverlay.style.display = 'flex';
+        if (elements.remoteOverlay) elements.remoteOverlay.style.display = 'flex';
         
         isBroadcaster = false;
         currentRoom = null;
         
-        if (startBtn) startBtn.disabled = false;
-        if (stopBtn) stopBtn.disabled = true;
-        if (joinBtn) joinBtn.disabled = false;
-        if (leaveBtn) leaveBtn.disabled = true;
+        if (elements.startBtn) elements.startBtn.disabled = false;
+        if (elements.stopBtn) elements.stopBtn.disabled = true;
+        if (elements.joinBtn) elements.joinBtn.disabled = false;
+        if (elements.leaveBtn) elements.leaveBtn.disabled = true;
     }
     
     // ============================================
-    // 5. CONEXIÓN AL SERVIDOR
+    // DETECTAR DISPOSITIVO
+    // ============================================
+    function detectDevice() {
+        const ua = navigator.userAgent.toLowerCase();
+        let type = 'PC';
+        
+        if (ua.includes('mobile') || ua.includes('android') || ua.includes('iphone')) {
+            type = '📱 MÓVIL';
+        } else if (ua.includes('tablet') || ua.includes('ipad')) {
+            type = '📱 TABLET';
+        } else if (ua.includes('tv') || ua.includes('smart-tv')) {
+            type = '📺 TV';
+        }
+        
+        if (elements.deviceInfo) {
+            elements.deviceInfo.textContent = type;
+        }
+        
+        return type;
+    }
+    
+    // ============================================
+    // CONEXIÓN AL SERVIDOR
     // ============================================
     function connectToServer() {
         log('Conectando al servidor...');
@@ -117,36 +121,45 @@ document.addEventListener('DOMContentLoaded', function() {
         socket = io();
         
         socket.on('connect', () => {
-            log('✅ Conectado al servidor');
-            showNotification('Conectado al servidor', 'success');
+            log('✅ Conectado');
+            showMessage('Conectado al servidor');
         });
         
         socket.on('disconnect', () => {
-            log('❌ Desconectado del servidor');
-            resetUI();
+            log('❌ Desconectado');
+            showMessage('Desconectado del servidor', true);
+        });
+        
+        socket.on('connect_error', (err) => {
+            log('❌ Error conexión:', err);
+            showMessage('Error de conexión: ' + err.message, true);
         });
         
         socket.on('broadcaster-ready', () => {
-            log('📡 Modo transmisor listo');
+            log('📡 Listo para transmitir');
+            showMessage('Transmisión lista');
         });
         
         socket.on('room-joined', (data) => {
             currentRoom = data.roomId;
             log(`✅ Unido a sala: ${data.roomId}`);
-            if (remoteOverlay) remoteOverlay.style.display = 'none';
-            if (viewerCount) viewerCount.textContent = '1 espectador';
+            showMessage(`Unido a sala ${data.roomId}`);
+            if (elements.remoteOverlay) elements.remoteOverlay.style.display = 'none';
+            if (elements.viewerCount) elements.viewerCount.textContent = '👥 1 espectador';
         });
         
         socket.on('room-error', (error) => {
-            log(`❌ Error: ${error}`);
-            alert(error);
+            const msg = error.message || String(error);
+            log(`❌ Error sala: ${msg}`);
+            showMessage('Error: ' + msg, true);
             resetUI();
         });
         
         socket.on('broadcaster-disconnected', () => {
             log('📡 Transmisor desconectado');
-            if (remoteVideo) remoteVideo.srcObject = null;
-            if (remoteOverlay) remoteOverlay.style.display = 'flex';
+            showMessage('El transmisor se desconectó', true);
+            if (elements.remoteVideo) elements.remoteVideo.srcObject = null;
+            if (elements.remoteOverlay) elements.remoteOverlay.style.display = 'flex';
             resetUI();
         });
         
@@ -157,7 +170,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     // ============================================
-    // 6. FUNCIONES WEBRTC
+    // WEBRTC
     // ============================================
     async function handleOffer(data) {
         log('📤 Oferta recibida');
@@ -166,8 +179,10 @@ document.addEventListener('DOMContentLoaded', function() {
             peerConnection = new RTCPeerConnection(configuration);
             
             peerConnection.ontrack = (event) => {
-                log('📥 Track remoto recibido');
-                if (remoteVideo) remoteVideo.srcObject = event.streams[0];
+                log('📥 Video recibido');
+                if (elements.remoteVideo) {
+                    elements.remoteVideo.srcObject = event.streams[0];
+                }
             };
             
             peerConnection.onicecandidate = (event) => {
@@ -192,7 +207,7 @@ document.addEventListener('DOMContentLoaded', function() {
             
             log('📥 Respuesta enviada');
         } catch (err) {
-            log(`❌ Error: ${err.message}`);
+            log('❌ Error:', err.message);
         }
     }
     
@@ -202,7 +217,7 @@ document.addEventListener('DOMContentLoaded', function() {
             await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
             log('✅ Conexión establecida');
         } catch (err) {
-            log(`❌ Error: ${err.message}`);
+            log('❌ Error:', err.message);
         }
     }
     
@@ -210,43 +225,46 @@ document.addEventListener('DOMContentLoaded', function() {
         try {
             if (peerConnection) {
                 await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
-                log('🧊 ICE candidate agregado');
+                log('🧊 ICE agregado');
             }
         } catch (err) {
-            log(`❌ Error: ${err.message}`);
+            log('❌ Error ICE:', err.message);
         }
     }
     
     // ============================================
-    // 7. FUNCIONES DE TRANSMISIÓN
+    // TRANSMITIR
     // ============================================
     async function startBroadcast() {
         try {
-            const room = roomId?.value.trim();
+            const room = elements.roomId?.value.trim();
             if (!room) {
-                alert('Ingresa un nombre para la sala');
+                showMessage('Ingresa un nombre para la sala', true);
                 return;
             }
             
-            log('Solicitando captura de pantalla...');
+            log('Solicitando pantalla...');
             localStream = await navigator.mediaDevices.getDisplayMedia({
                 video: true,
                 audio: true
             });
             
-            if (localVideo) localVideo.srcObject = localStream;
-            if (localOverlay) localOverlay.style.display = 'none';
+            if (elements.localVideo) {
+                elements.localVideo.srcObject = localStream;
+            }
+            if (elements.localOverlay) {
+                elements.localOverlay.style.display = 'none';
+            }
             
             isBroadcaster = true;
             currentRoom = room;
             
-            if (startBtn) startBtn.disabled = true;
-            if (stopBtn) stopBtn.disabled = false;
-            if (joinBtn) joinBtn.disabled = true;
+            if (elements.startBtn) elements.startBtn.disabled = true;
+            if (elements.stopBtn) elements.stopBtn.disabled = false;
+            if (elements.joinBtn) elements.joinBtn.disabled = true;
             
             socket.emit('broadcaster-join', room);
             
-            // Crear peer connection
             peerConnection = new RTCPeerConnection(configuration);
             localStream.getTracks().forEach(track => {
                 peerConnection.addTrack(track, localStream);
@@ -266,11 +284,11 @@ document.addEventListener('DOMContentLoaded', function() {
             };
             
             log(`📡 Transmitiendo en: ${room}`);
-            showNotification('Transmisión iniciada', 'success');
+            showMessage('✅ Transmisión iniciada');
             
         } catch (err) {
-            log(`❌ Error: ${err.message}`);
-            alert('Error: ' + err.message);
+            log('❌ Error:', err.message);
+            showMessage('Error: ' + err.message, true);
             resetUI();
         }
     }
@@ -290,29 +308,32 @@ document.addEventListener('DOMContentLoaded', function() {
             socket.emit('stop-broadcast', currentRoom);
         }
         
-        if (localVideo) localVideo.srcObject = null;
-        if (localOverlay) localOverlay.style.display = 'flex';
+        if (elements.localVideo) elements.localVideo.srcObject = null;
+        if (elements.localOverlay) elements.localOverlay.style.display = 'flex';
         
         resetUI();
         log('⏹️ Transmisión detenida');
-        showNotification('Transmisión detenida', 'info');
+        showMessage('Transmisión detenida');
     }
     
+    // ============================================
+    // VER
+    // ============================================
     function joinAsViewer() {
-        const room = viewRoomId?.value.trim();
+        const room = elements.viewRoomId?.value.trim();
         if (!room) {
-            alert('Ingresa un nombre para la sala');
+            showMessage('Ingresa un nombre para la sala', true);
             return;
         }
         
         currentRoom = room;
         
-        if (joinBtn) joinBtn.disabled = true;
-        if (leaveBtn) leaveBtn.disabled = false;
-        if (startBtn) startBtn.disabled = true;
+        if (elements.joinBtn) elements.joinBtn.disabled = true;
+        if (elements.leaveBtn) elements.leaveBtn.disabled = false;
+        if (elements.startBtn) elements.startBtn.disabled = true;
         
-        if (remoteOverlay) {
-            remoteOverlay.innerHTML = '<span>Conectando...</span>';
+        if (elements.remoteOverlay) {
+            elements.remoteOverlay.innerHTML = '<span>⏳ Conectando...</span>';
         }
         
         socket.emit('viewer-join', room);
@@ -325,10 +346,10 @@ document.addEventListener('DOMContentLoaded', function() {
             peerConnection = null;
         }
         
-        if (remoteVideo) remoteVideo.srcObject = null;
-        if (remoteOverlay) {
-            remoteOverlay.style.display = 'flex';
-            remoteOverlay.innerHTML = '<span>Esperando transmisión...</span>';
+        if (elements.remoteVideo) elements.remoteVideo.srcObject = null;
+        if (elements.remoteOverlay) {
+            elements.remoteOverlay.style.display = 'flex';
+            elements.remoteOverlay.innerHTML = '<span>📺 Esperando transmisión...</span>';
         }
         
         resetUI();
@@ -336,7 +357,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     // ============================================
-    // 8. INICIALIZACIÓN
+    // INICIALIZAR
     // ============================================
     log('Inicializando...');
     
@@ -347,33 +368,17 @@ document.addEventListener('DOMContentLoaded', function() {
     // Conectar al servidor
     connectToServer();
     
-    // Configurar eventos
-    if (startBtn) startBtn.addEventListener('click', startBroadcast);
-    if (stopBtn) stopBtn.addEventListener('click', stopBroadcast);
-    if (joinBtn) joinBtn.addEventListener('click', joinAsViewer);
-    if (leaveBtn) leaveBtn.addEventListener('click', leaveAsViewer);
+    // Eventos
+    if (elements.startBtn) elements.startBtn.addEventListener('click', startBroadcast);
+    if (elements.stopBtn) elements.stopBtn.addEventListener('click', stopBroadcast);
+    if (elements.joinBtn) elements.joinBtn.addEventListener('click', joinAsViewer);
+    if (elements.leaveBtn) elements.leaveBtn.addEventListener('click', leaveAsViewer);
     
-    // Generar nombre de sala aleatorio
-    if (roomId) {
+    // Nombre de sala aleatorio
+    if (elements.roomId) {
         const random = Math.random().toString(36).substring(7);
-        roomId.value = `sala-${random}`;
+        elements.roomId.value = `sala-${random}`;
     }
     
     log('✅ Aplicación lista');
 });
-
-// ============================================
-// 9. FUNCIÓN GLOBAL PARA DEBUG (si existe)
-// ============================================
-window.toggleDebug = function() {
-    const debugContent = document.getElementById('debugContent');
-    if (debugContent) {
-        debugContent.classList.toggle('collapsed');
-        const icon = document.querySelector('.toggle-icon');
-        if (icon) {
-            icon.textContent = debugContent.classList.contains('collapsed') ? '▶' : '▼';
-        }
-    }
-};
-
-console.log('📦 Script cargado, esperando DOM...');
