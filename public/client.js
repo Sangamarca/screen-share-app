@@ -1,5 +1,5 @@
 // ============================================
-// VERSIÓN CON DIAGNÓSTICO PARA MÓVIL
+// VERSIÓN CON HEARTBEAT DOBLE - CADA 10 SEGUNDOS
 // ============================================
 console.log('🚀 Cliente iniciando...');
 
@@ -7,7 +7,7 @@ document.addEventListener('DOMContentLoaded', function() {
     console.log('✅ DOM completamente cargado');
     
     // ============================================
-    // DIAGNÓSTICO VISUAL PARA MÓVIL
+    // DIAGNÓSTICO VISUAL (opcional, puedes quitarlo luego)
     // ============================================
     const diagnosticDiv = document.createElement('div');
     diagnosticDiv.style.cssText = `
@@ -52,10 +52,6 @@ document.addEventListener('DOMContentLoaded', function() {
     
     diag('🔧 DIAGNÓSTICO ACTIVADO');
     diag(`📱 Dispositivo: ${isMobile ? 'MÓVIL' : isTablet ? 'TABLET' : isTV ? 'TV' : 'PC'}`);
-    diag(`🌐 URL: ${window.location.href}`);
-    diag(`🖥️ User Agent: ${ua.substring(0, 50)}...`);
-    diag(`🔌 WebRTC soportado: ${!!navigator.mediaDevices?.getUserMedia}`);
-    diag(`📺 ScreenShare soportado: ${!!navigator.mediaDevices?.getDisplayMedia}`);
     
     // ============================================
     // ELEMENTOS DEL DOM
@@ -124,6 +120,7 @@ document.addEventListener('DOMContentLoaded', function() {
     let currentRoom = null;
     let isBroadcaster = false;
     let heartbeatInterval = null;
+    let reconnectAttempts = 0;
     
     // ============================================
     // FUNCIONES DE UTILIDAD
@@ -131,7 +128,11 @@ document.addEventListener('DOMContentLoaded', function() {
     function log(message) {
         const timestamp = new Date().toLocaleTimeString();
         console.log(`[${timestamp}] ${message}`);
-        diag(message); // También al diagnóstico
+        diag(message);
+        
+        if (elements.statusText) {
+            elements.statusText.textContent = message;
+        }
     }
     
     function updateConnectionStatus(connected, message = '') {
@@ -185,6 +186,7 @@ document.addEventListener('DOMContentLoaded', function() {
         
         isBroadcaster = false;
         currentRoom = null;
+        reconnectAttempts = 0;
         
         if (elements.startBtn) elements.startBtn.disabled = false;
         if (elements.stopBtn) elements.stopBtn.disabled = true;
@@ -193,7 +195,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     // ============================================
-    // CONEXIÓN AL SERVIDOR
+    // PARTE 2: CONEXIÓN AL SERVIDOR CON HEARTBEAT DOBLE
     // ============================================
     function connectToServer() {
         log('Conectando al servidor...');
@@ -203,29 +205,49 @@ document.addEventListener('DOMContentLoaded', function() {
             reconnectionAttempts: Infinity,
             reconnectionDelay: 1000,
             reconnectionDelayMax: 5000,
-            timeout: 20000
+            timeout: 30000,
+            transports: ['websocket', 'polling'] // Permitir ambos para compatibilidad
         });
         
         socket.on('connect', () => {
             log(`✅ Conectado al servidor - ID: ${socket.id}`);
             updateConnectionStatus(true, 'Conectado');
             showNotification('Conectado al servidor', 'success');
+            reconnectAttempts = 0;
             
-            // Heartbeat cada 15 segundos
+            // ===== HEARTBEAT DOBLE - CADA 10 SEGUNDOS =====
             if (heartbeatInterval) {
                 clearInterval(heartbeatInterval);
             }
             
             heartbeatInterval = setInterval(() => {
                 if (socket && socket.connected) {
+                    // Enviar ping estándar
                     socket.emit('ping');
-                    log('💓 Heartbeat enviado');
+                    // Enviar keep-alive adicional
+                    socket.emit('keep-alive', Date.now());
+                    // Enviar un mensaje vacío por si acaso
+                    socket.volatile.emit('heartbeat', Date.now());
+                    
+                    log('💓 Heartbeat doble enviado (ping + keep-alive)');
+                } else {
+                    if (heartbeatInterval) {
+                        clearInterval(heartbeatInterval);
+                        heartbeatInterval = null;
+                    }
                 }
-            }, 15000);
+            }, 10000); // CADA 10 SEGUNDOS (más frecuente)
+            // ===== FIN HEARTBEAT DOBLE =====
+            
+            // Responder a pings del servidor
+            socket.on('ping-from-server', () => {
+                socket.emit('pong-from-client');
+                log('📡 Ping respondido al servidor');
+            });
         });
         
         socket.on('pong', () => {
-            log('💓 Heartbeat recibido');
+            log('💓 Heartbeat recibido del servidor');
         });
         
         socket.on('disconnect', (reason) => {
@@ -241,11 +263,22 @@ document.addEventListener('DOMContentLoaded', function() {
             if (isBroadcaster) {
                 resetUI();
             }
+            
+            // Intentar reconectar automáticamente
+            reconnectAttempts++;
+            if (reconnectAttempts > 3) {
+                showNotification('Reconectando...', 'info');
+            }
         });
         
         socket.on('connect_error', (err) => {
             log(`❌ Error de conexión: ${err.message}`);
             updateConnectionStatus(false, 'Error de conexión');
+            
+            reconnectAttempts++;
+            if (reconnectAttempts > 5) {
+                showNotification('No se puede conectar al servidor', 'error');
+            }
         });
         
         socket.on('broadcaster-ready', () => {
@@ -283,7 +316,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     // ============================================
-    // WEBRTC HANDLERS CON DIAGNÓSTICO
+    // WEBRTC HANDLERS
     // ============================================
     async function handleOffer(data) {
         log('📤 Oferta recibida');
@@ -307,7 +340,6 @@ document.addEventListener('DOMContentLoaded', function() {
             
             peerConnection.onicecandidate = (event) => {
                 if (event.candidate) {
-                    log(`🧊 ICE candidate: ${event.candidate.candidate.substring(0, 30)}...`);
                     socket.emit('ice-candidate', {
                         target: data.from,
                         candidate: event.candidate
@@ -329,22 +361,15 @@ document.addEventListener('DOMContentLoaded', function() {
             peerConnection.onconnectionstatechange = () => {
                 log(`🔌 Connection state: ${peerConnection.connectionState}`);
             };
-            
-            peerConnection.onsignalingstatechange = () => {
-                log(`🚦 Signaling state: ${peerConnection.signalingState}`);
-            };
         }
         
         try {
-            log('📥 Estableciendo descripción remota...');
             await peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
             log('✅ Descripción remota establecida');
             
-            log('📤 Creando respuesta...');
             const answer = await peerConnection.createAnswer();
             log('✅ Respuesta creada');
             
-            log('📤 Estableciendo descripción local...');
             await peerConnection.setLocalDescription(answer);
             log('✅ Descripción local establecida');
             
@@ -375,7 +400,7 @@ document.addEventListener('DOMContentLoaded', function() {
         try {
             if (peerConnection) {
                 await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
-                log('🧊 ICE candidate agregado al peer');
+                log('🧊 ICE candidate agregado');
             }
         } catch (err) {
             log(`❌ Error ICE: ${err.message}`);
@@ -408,7 +433,6 @@ document.addEventListener('DOMContentLoaded', function() {
             
             localStream = await navigator.mediaDevices.getDisplayMedia(constraints);
             log('✅ Captura obtenida');
-            log(`📊 Track de video: ${localStream.getVideoTracks()[0].label}`);
             
             if (elements.localVideo) {
                 elements.localVideo.srcObject = localStream;
@@ -566,7 +590,9 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         
         // También ocultar/mostrar diagnóstico
-        diagnosticDiv.style.display = diagnosticDiv.style.display === 'none' ? 'block' : 'none';
+        if (diagnosticDiv) {
+            diagnosticDiv.style.display = diagnosticDiv.style.display === 'none' ? 'block' : 'none';
+        }
     };
     
     // ============================================
@@ -617,7 +643,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         
         log('✅ Aplicación lista');
-        diag('✅ DIAGNÓSTICO LISTO - Esperando eventos...');
+        diag('✅ DIAGNÓSTICO LISTO - Heartbeat doble activado (c/10s)');
     }
     
     // Iniciar
