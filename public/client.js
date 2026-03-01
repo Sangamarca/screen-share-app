@@ -1,46 +1,53 @@
 // ============================================
-// VERSIÓN COMPLETA - CON MANEJO DE NUEVOS VIEWERS
+// VERSIÓN FINAL - CON TODO CORREGIDO
 // ============================================
 
-console.log('🚀 Iniciando...');
+console.log('🚀 Cliente iniciando...');
 
-// Panel de diagnóstico WebRTC
-const webrtcPanel = document.createElement('div');
-webrtcPanel.style.cssText = `
+// Panel de diagnóstico visible
+const diagnosticPanel = document.createElement('div');
+diagnosticPanel.id = 'diagnosticPanel';
+diagnosticPanel.style.cssText = `
     position: fixed;
-    bottom: 0;
+    top: 0;
     left: 0;
     right: 0;
-    background: #1a1a1a;
+    background: black;
     color: #00ff00;
     font-family: monospace;
     font-size: 12px;
     padding: 10px;
     z-index: 10000;
-    max-height: 150px;
+    max-height: 200px;
     overflow-y: auto;
-    border-top: 2px solid #00ff00;
+    border-bottom: 3px solid #ff0000;
 `;
-document.body.appendChild(webrtcPanel);
+document.body.appendChild(diagnosticPanel);
 
-function webrtcLog(msg) {
+function log(msg, type = 'INFO') {
     const time = new Date().toLocaleTimeString();
-    console.log(`[WEBRTC] ${msg}`);
+    const logMsg = `[${time}] [${type}] ${msg}`;
+    console.log(logMsg);
+    
     const line = document.createElement('div');
-    line.textContent = `[${time}] ${msg}`;
-    webrtcPanel.appendChild(line);
-    webrtcPanel.scrollTop = webrtcPanel.scrollHeight;
-    while (webrtcPanel.children.length > 8) {
-        webrtcPanel.removeChild(webrtcPanel.firstChild);
+    line.textContent = logMsg;
+    diagnosticPanel.appendChild(line);
+    diagnosticPanel.scrollTop = diagnosticPanel.scrollHeight;
+    
+    // Limitar líneas
+    while (diagnosticPanel.children.length > 12) {
+        diagnosticPanel.removeChild(diagnosticPanel.firstChild);
     }
 }
 
-webrtcLog('🔧 Panel de diagnóstico WebRTC activado');
+log('🔧 Panel de diagnóstico activado');
 
 document.addEventListener('DOMContentLoaded', function() {
-    console.log('✅ DOM listo');
+    log('✅ DOM listo');
     
-    // Elementos del DOM
+    // ============================================
+    // ELEMENTOS DEL DOM
+    // ============================================
     const elements = {
         localVideo: document.getElementById('localVideo'),
         remoteVideo: document.getElementById('remoteVideo'),
@@ -52,39 +59,80 @@ document.addEventListener('DOMContentLoaded', function() {
         viewRoomId: document.getElementById('viewRoomId'),
         localOverlay: document.getElementById('localOverlay'),
         remoteOverlay: document.getElementById('remoteOverlay'),
-        statusText: document.getElementById('statusText')
+        statusText: document.getElementById('statusText'),
+        viewerCount: document.getElementById('viewerCount')
     };
     
-    // Estado
+    // Verificar elementos
+    for (const [key, el] of Object.entries(elements)) {
+        if (!el) log(`⚠️ Elemento no encontrado: ${key}`, 'WARN');
+    }
+    
+    // ============================================
+    // ESTADO
+    // ============================================
     let socket = null;
     let localStream = null;
     let peerConnection = null;
     let currentRoom = null;
     let isBroadcaster = false;
     
-    // Configuración STUN
+    // ============================================
+    // CONFIGURACIÓN STUN
+    // ============================================
     const configuration = {
         iceServers: [
             { urls: 'stun:stun.l.google.com:19302' },
             { urls: 'stun:stun1.l.google.com:19302' },
             { urls: 'stun:stun2.l.google.com:19302' },
-            { urls: 'stun:stun3.l.google.com:19302' }
+            { urls: 'stun:stun3.l.google.com:19302' },
+            { urls: 'stun:stun4.l.google.com:19302' }
         ],
         iceCandidatePoolSize: 10
     };
     
-    // Función de estado
-    function updateStatus(msg, isError = false) {
-        console.log(`[STATUS] ${msg}`);
+    // ============================================
+    // FUNCIONES AUXILIARES
+    // ============================================
+    function updateStatus(msg) {
+        log(msg, 'STATUS');
         if (elements.statusText) {
             elements.statusText.textContent = msg;
-            elements.statusText.style.color = isError ? '#dc3545' : '#28a745';
         }
     }
     
-    // Conectar al servidor
+    function resetUI() {
+        if (localStream) {
+            localStream.getTracks().forEach(t => t.stop());
+            localStream = null;
+        }
+        if (peerConnection) {
+            peerConnection.close();
+            peerConnection = null;
+        }
+        if (elements.localVideo) elements.localVideo.srcObject = null;
+        if (elements.remoteVideo) elements.remoteVideo.srcObject = null;
+        if (elements.localOverlay) elements.localOverlay.style.display = 'flex';
+        if (elements.remoteOverlay) elements.remoteOverlay.style.display = 'flex';
+        
+        isBroadcaster = false;
+        currentRoom = null;
+        
+        if (elements.startBtn) elements.startBtn.disabled = false;
+        if (elements.stopBtn) elements.stopBtn.disabled = true;
+        if (elements.joinBtn) {
+            elements.joinBtn.disabled = false;
+            elements.joinBtn.textContent = 'Unirse';
+        }
+        if (elements.leaveBtn) elements.leaveBtn.disabled = true;
+        if (elements.viewerCount) elements.viewerCount.textContent = '0 espectadores';
+    }
+    
+    // ============================================
+    // CONEXIÓN AL SERVIDOR
+    // ============================================
     function connectToServer() {
-        updateStatus('Conectando...');
+        log('Conectando al servidor...');
         
         socket = io({
             reconnection: true,
@@ -92,114 +140,128 @@ document.addEventListener('DOMContentLoaded', function() {
         });
         
         socket.on('connect', () => {
-            updateStatus('✅ Conectado al servidor');
+            log('✅ Conectado al servidor', 'SUCCESS');
+            updateStatus('Conectado');
         });
         
-        socket.on('disconnect', () => {
-            updateStatus('❌ Desconectado', true);
+        socket.on('disconnect', (reason) => {
+            log(`❌ Desconectado: ${reason}`, 'ERROR');
+            updateStatus('Desconectado');
+            resetUI();
         });
         
+        // ============================================
+        // EVENTOS GENERALES
+        // ============================================
         socket.on('broadcaster-ready', () => {
-            updateStatus('📡 Listo para transmitir');
+            log('📡 Modo transmisor listo', 'SUCCESS');
         });
         
         socket.on('room-joined', (data) => {
             currentRoom = data.roomId;
-            updateStatus(`✅ Unido a sala: ${data.roomId}`);
+            log(`✅ Unido a sala: ${data.roomId}`, 'SUCCESS');
+            log('⏳ Esperando oferta del broadcaster...', 'INFO');
+            updateStatus(`Unido a ${data.roomId}`);
+            
             if (elements.remoteOverlay) {
                 elements.remoteOverlay.style.display = 'none';
             }
-            webrtcLog(`✅ Unido a sala, esperando oferta del broadcaster`);
+            if (elements.joinBtn) {
+                elements.joinBtn.disabled = false;
+                elements.joinBtn.textContent = 'Unirse';
+            }
         });
         
         socket.on('room-error', (error) => {
-            updateStatus(`❌ Error: ${error.message || error}`, true);
+            log(`❌ Error: ${error}`, 'ERROR');
+            updateStatus(`Error: ${error}`);
+            resetUI();
         });
         
         socket.on('broadcaster-disconnected', () => {
-            updateStatus('📡 Transmisor desconectado', true);
+            log('📡 Transmisor desconectado', 'WARN');
+            updateStatus('Transmisor desconectado');
             if (elements.remoteVideo) elements.remoteVideo.srcObject = null;
             if (elements.remoteOverlay) elements.remoteOverlay.style.display = 'flex';
+            resetUI();
+        });
+        
+        socket.on('viewers-update', (data) => {
+            log(`👥 Viewers: ${data.total}`, 'INFO');
+            if (elements.viewerCount) {
+                elements.viewerCount.textContent = `${data.total} espectadores`;
+            }
         });
         
         // ============================================
-        // EVENTOS WEBRTC (AMBOS LADOS)
+        // EVENTO CRÍTICO: viewer-joined (SOLO BROADCASTER)
         // ============================================
-        
-        // Para el VIEWER: Recibir oferta del broadcaster
-        socket.on('offer', handleOffer);
-        
-        // Para el BROADCASTER: Recibir respuesta del viewer
-        socket.on('answer', handleAnswer);
-        
-        // Para ambos: Intercambiar ICE candidates
-        socket.on('ice-candidate', handleIceCandidate);
-        
-        // ============================================
-        // EVENTOS ESPECÍFICOS DEL BROADCASTER
-        // ============================================
-        socket.on('viewer-joined', (viewerId) => {
-            webrtcLog(`👁️ NUEVO VIEWER CONECTADO: ${viewerId}`);
-            updateStatus(`👁️ Nuevo espectador conectado`);
+        socket.on('viewer-joined', (data) => {
+            // Mensaje SUPER visible
+            console.log('%c🔥 NUEVO VIEWER DETECTADO 🔥', 'background: red; color: white; font-size: 16px');
+            log(`🔥 NUEVO VIEWER: ${data.viewerId}`, 'CRITICAL');
+            log(`👥 Total viewers: ${data.totalViewers}`, 'INFO');
             
-            // Verificar que somos broadcaster
             if (!isBroadcaster) {
-                webrtcLog('❌ Error: No soy broadcaster');
+                log('❌ No soy broadcaster, ignorando', 'ERROR');
                 return;
             }
             
             if (!peerConnection) {
-                webrtcLog('❌ Error: peerConnection no existe');
+                log('❌ peerConnection no existe', 'ERROR');
                 return;
             }
             
-            webrtcLog('📤 Creando oferta para nuevo viewer...');
+            log('📤 Creando oferta para nuevo viewer...', 'INFO');
             
-            // Crear oferta para este viewer específico
             peerConnection.createOffer()
                 .then(offer => {
-                    webrtcLog('✅ Oferta creada');
+                    log('✅ Oferta creada', 'SUCCESS');
                     return peerConnection.setLocalDescription(offer);
                 })
                 .then(() => {
-                    webrtcLog('✅ Descripción local establecida');
-                    webrtcLog(`📤 Enviando oferta a viewer ${viewerId}...`);
+                    log(`📤 Enviando oferta a viewer ${data.viewerId}...`, 'INFO');
                     
                     socket.emit('offer', {
-                        target: viewerId,
+                        target: data.viewerId,
                         offer: peerConnection.localDescription
                     });
                     
-                    webrtcLog('✅ Oferta enviada');
+                    log('✅ Oferta enviada', 'SUCCESS');
                 })
                 .catch(err => {
-                    webrtcLog(`❌ Error creando oferta: ${err.message}`);
+                    log(`❌ Error creando oferta: ${err.message}`, 'ERROR');
                 });
         });
         
         socket.on('viewer-left', (data) => {
-            webrtcLog(`👋 Viewer desconectado: ${data.viewerId}`);
-            webrtcLog(`👥 Viewers restantes: ${data.totalViewers}`);
-            updateStatus(`👥 ${data.totalViewers} espectadores`);
+            log(`👋 Viewer ${data.viewerId} desconectado`, 'INFO');
+            log(`👥 Viewers restantes: ${data.totalViewers}`, 'INFO');
         });
+        
+        // ============================================
+        // EVENTOS WEBRTC
+        // ============================================
+        socket.on('offer', handleOffer);
+        socket.on('answer', handleAnswer);
+        socket.on('ice-candidate', handleIceCandidate);
     }
     
     // ============================================
-    // HANDLERS WEBRTC (PARA VIEWER)
+    // HANDLERS WEBRTC
     // ============================================
     async function handleOffer(data) {
-        webrtcLog(`📥 OFERTA RECIBIDA del broadcaster`);
-        webrtcLog(`   De: ${data.from}`);
-        updateStatus('📥 Recibiendo oferta...');
+        log(`📥 OFERTA RECIBIDA del broadcaster ${data.from}`, 'SUCCESS');
         
         try {
-            // Crear peer connection si no existe
             if (!peerConnection) {
-                webrtcLog('🆕 Creando nueva PeerConnection');
+                log('🆕 Creando PeerConnection como viewer', 'INFO');
                 peerConnection = new RTCPeerConnection(configuration);
                 
                 peerConnection.ontrack = (event) => {
-                    webrtcLog('✅ TRACK RECIBIDO - VIDEO LLEGANDO');
+                    log('🎥 VIDEO RECIBIDO 🎥', 'SUCCESS');
+                    log(`   Kind: ${event.track.kind}`, 'INFO');
+                    
                     if (elements.remoteVideo) {
                         elements.remoteVideo.srcObject = event.streams[0];
                         if (elements.remoteOverlay) {
@@ -219,59 +281,59 @@ document.addEventListener('DOMContentLoaded', function() {
                 };
                 
                 peerConnection.oniceconnectionstatechange = () => {
-                    webrtcLog(`🧊 ICE state: ${peerConnection.iceConnectionState}`);
+                    log(`🧊 ICE state: ${peerConnection.iceConnectionState}`, 'INFO');
                     if (peerConnection.iceConnectionState === 'connected') {
                         updateStatus('✅ Conexión establecida');
                     }
                 };
             }
             
-            // Establecer la oferta como descripción remota
+            log('📥 Estableciendo descripción remota...', 'INFO');
             await peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
-            webrtcLog('✅ Remote description set');
+            log('✅ Remote description set', 'SUCCESS');
             
-            // Crear respuesta
+            log('📤 Creando respuesta...', 'INFO');
             const answer = await peerConnection.createAnswer();
-            webrtcLog('✅ Answer creada');
+            log('✅ Answer creada', 'SUCCESS');
             
-            // Establecer como descripción local
+            log('📤 Estableciendo descripción local...', 'INFO');
             await peerConnection.setLocalDescription(answer);
-            webrtcLog('✅ Local description set');
+            log('✅ Local description set', 'SUCCESS');
             
-            // Enviar respuesta al broadcaster
+            log(`📤 Enviando respuesta a broadcaster ${data.from}...`, 'INFO');
             socket.emit('answer', {
                 target: data.from,
                 answer: answer
             });
-            webrtcLog('📤 Respuesta enviada');
+            log('✅ Respuesta enviada', 'SUCCESS');
             
         } catch (err) {
-            webrtcLog(`❌ ERROR: ${err.message}`);
-            updateStatus(`❌ Error: ${err.message}`, true);
+            log(`❌ Error en handleOffer: ${err.message}`, 'ERROR');
         }
     }
     
     async function handleAnswer(data) {
-        webrtcLog(`📥 RESPUESTA RECIBIDA del viewer`);
+        log(`📥 Respuesta recibida de viewer ${data.from}`, 'SUCCESS');
         try {
             if (peerConnection) {
                 await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
-                webrtcLog('✅ Remote description set (answer)');
+                log('✅ Remote description set (answer)', 'SUCCESS');
+                log('✅ Conexión WebRTC establecida', 'SUCCESS');
             }
         } catch (err) {
-            webrtcLog(`❌ Error en answer: ${err.message}`);
+            log(`❌ Error en handleAnswer: ${err.message}`, 'ERROR');
         }
     }
     
     async function handleIceCandidate(data) {
-        webrtcLog(`🧊 ICE candidate recibido`);
+        log(`🧊 ICE candidate recibido`, 'INFO');
         try {
             if (peerConnection) {
                 await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
-                webrtcLog('✅ ICE candidate agregado');
+                log('✅ ICE candidate agregado', 'SUCCESS');
             }
         } catch (err) {
-            webrtcLog(`❌ Error agregando ICE: ${err.message}`);
+            log(`❌ Error ICE: ${err.message}`, 'ERROR');
         }
     }
     
@@ -285,7 +347,7 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
         
-        currentRoom = roomName;
+        log(`👋 Uniéndose a sala: ${roomName}`, 'VIEWER');
         
         if (elements.joinBtn) {
             elements.joinBtn.disabled = true;
@@ -298,15 +360,17 @@ document.addEventListener('DOMContentLoaded', function() {
             elements.startBtn.disabled = true;
         }
         if (elements.remoteOverlay) {
-            elements.remoteOverlay.innerHTML = '<span>⏳ Conectando...</span>';
+            elements.remoteOverlay.innerHTML = '<span>⏳ Conectando al transmisor...</span>';
         }
         
-        webrtcLog(`👋 Uniéndose a sala: ${roomName}`);
-        updateStatus(`👁️ Uniéndose a ${roomName}...`);
+        currentRoom = roomName;
         socket.emit('viewer-join', roomName);
+        updateStatus(`Uniéndose a ${roomName}...`);
     }
     
     function leaveRoom() {
+        log('👋 Saliendo de la sala', 'VIEWER');
+        
         if (peerConnection) {
             peerConnection.close();
             peerConnection = null;
@@ -317,7 +381,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         if (elements.remoteOverlay) {
             elements.remoteOverlay.style.display = 'flex';
-            elements.remoteOverlay.innerHTML = '<span>📺 Esperando...</span>';
+            elements.remoteOverlay.innerHTML = '<span>📺 Esperando transmisión...</span>';
         }
         
         if (elements.joinBtn) {
@@ -332,7 +396,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         
         currentRoom = null;
-        updateStatus('👋 Desconectado');
+        updateStatus('Desconectado');
     }
     
     // ============================================
@@ -340,13 +404,20 @@ document.addEventListener('DOMContentLoaded', function() {
     // ============================================
     async function startBroadcast() {
         try {
-            const roomName = elements.roomId?.value.trim() || 'sala1';
+            const roomName = elements.roomId?.value.trim();
+            if (!roomName) {
+                alert('Ingresa un nombre para la sala');
+                return;
+            }
             
-            updateStatus('Solicitando pantalla...');
+            log('📤 Solicitando captura de pantalla...', 'BROADCASTER');
+            
             localStream = await navigator.mediaDevices.getDisplayMedia({
                 video: true,
                 audio: true
             });
+            
+            log('✅ Captura obtenida', 'SUCCESS');
             
             if (elements.localVideo) {
                 elements.localVideo.srcObject = localStream;
@@ -363,10 +434,12 @@ document.addEventListener('DOMContentLoaded', function() {
             if (elements.joinBtn) elements.joinBtn.disabled = true;
             
             socket.emit('broadcaster-join', roomName);
+            log(`📡 Unido a sala: ${roomName} como BROADCASTER`, 'BROADCASTER');
             
             peerConnection = new RTCPeerConnection(configuration);
             localStream.getTracks().forEach(track => {
                 peerConnection.addTrack(track, localStream);
+                log(`➕ Track añadido: ${track.kind}`, 'INFO');
             });
             
             peerConnection.onicecandidate = (event) => {
@@ -379,21 +452,25 @@ document.addEventListener('DOMContentLoaded', function() {
             };
             
             peerConnection.oniceconnectionstatechange = () => {
-                console.log('ICE broadcaster:', peerConnection.iceConnectionState);
+                log(`🧊 ICE broadcaster: ${peerConnection.iceConnectionState}`, 'INFO');
             };
             
             localStream.getVideoTracks()[0].onended = () => {
+                log('⏹️ Captura finalizada por el usuario', 'WARN');
                 stopBroadcast();
             };
             
             updateStatus(`📡 Transmitiendo en ${roomName}`);
             
         } catch (err) {
-            updateStatus(`❌ Error: ${err.message}`, true);
+            log(`❌ Error: ${err.message}`, 'ERROR');
+            resetUI();
         }
     }
     
     function stopBroadcast() {
+        log('⏹️ Deteniendo transmisión...', 'BROADCASTER');
+        
         if (localStream) {
             localStream.getTracks().forEach(t => t.stop());
             localStream = null;
@@ -408,17 +485,12 @@ document.addEventListener('DOMContentLoaded', function() {
         if (elements.localVideo) elements.localVideo.srcObject = null;
         if (elements.localOverlay) elements.localOverlay.style.display = 'flex';
         
-        if (elements.startBtn) elements.startBtn.disabled = false;
-        if (elements.stopBtn) elements.stopBtn.disabled = true;
-        if (elements.joinBtn) elements.joinBtn.disabled = false;
-        
-        isBroadcaster = false;
-        currentRoom = null;
+        resetUI();
         updateStatus('⏹️ Transmisión detenida');
     }
     
     // ============================================
-    // INICIALIZAR
+    // INICIALIZACIÓN
     // ============================================
     connectToServer();
     
@@ -442,6 +514,5 @@ document.addEventListener('DOMContentLoaded', function() {
         elements.viewRoomId.value = 'sala1';
     }
     
-    updateStatus('✅ App lista');
-    webrtcLog('✅ Diagnóstico WebRTC listo');
+    log('✅ Inicialización completa', 'SUCCESS');
 });
