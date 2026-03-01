@@ -1,5 +1,5 @@
 // ============================================
-// VERSIÓN ESTABLE - CON IMAGEN GARANTIZADA
+// VERSIÓN FINAL - CALIDAD MEJORADA 480p
 // ============================================
 
 console.log('🚀 Cliente iniciando...');
@@ -402,7 +402,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     // ============================================
-    // FUNCIÓN TRANSMITIR - VERSIÓN SIMPLE
+    // FUNCIÓN TRANSMITIR - CALIDAD MEJORADA 480p
     // ============================================
     async function startBroadcast() {
         try {
@@ -414,11 +414,11 @@ document.addEventListener('DOMContentLoaded', function() {
             
             log('📤 Solicitando pantalla...', 'BROADCASTER');
             
-            // CALIDAD MEDIA - SEGURA
+            // CALIDAD MEJORADA 480p (estable y se ve bien)
             const videoConstraints = {
-                width: { ideal: 640, max: 854 },
-                height: { ideal: 360, max: 480 },
-                frameRate: { ideal: 15, max: 20 }
+                width: { ideal: 854, max: 1024 },
+                height: { ideal: 480, max: 576 },
+                frameRate: { ideal: 20, max: 25 }
             };
             
             localStream = await navigator.mediaDevices.getDisplayMedia({
@@ -426,7 +426,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 audio: true
             });
             
-            log(`✅ Captura obtenida`, 'SUCCESS');
+            // Mostrar resolución real
+            const track = localStream.getVideoTracks()[0];
+            const settings = track.getSettings();
+            log(`✅ Captura obtenida - Resolución: ${settings.width}x${settings.height}`, 'SUCCESS');
             
             if (elements.localVideo) {
                 elements.localVideo.srcObject = localStream;
@@ -447,7 +450,7 @@ document.addEventListener('DOMContentLoaded', function() {
             
             localStream.getVideoTracks()[0].onended = () => stopBroadcast();
             
-            updateStatus(`📡 Transmitiendo`);
+            updateStatus(`📡 Transmitiendo ${settings.width}x${settings.height}`);
             
         } catch (err) {
             log(`❌ Error: ${err.message}`, 'ERROR');
@@ -539,5 +542,5 @@ document.addEventListener('DOMContentLoaded', function() {
     
     setupFullscreen();
     
-    log('✅ Inicialización completa', 'SUCCESS');
+    log('✅ Inicialización completa - Calidad 480p', 'SUCCESS');
 });
