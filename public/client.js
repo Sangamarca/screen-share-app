@@ -1,8 +1,8 @@
 // ============================================
-// VERSIÓN FINAL - CALIDAD MEJORADA 480p
+// VERSIÓN DEFINITIVA - CON HEARTBEAT Y ANTI-CIERRE
 // ============================================
 
-console.log('🚀 Cliente iniciando...');
+console.log('🚀 Cliente final iniciando...');
 
 // Panel de diagnóstico
 const diagnosticPanel = document.createElement('div');
@@ -73,6 +73,8 @@ document.addEventListener('DOMContentLoaded', function() {
     let currentRoom = null;
     let isBroadcaster = false;
     let isViewer = false;
+    let heartbeatInterval = null;
+    let reconnectAttempts = 0;
     
     // ============================================
     // CONFIGURACIÓN STUN BÁSICA
@@ -110,6 +112,17 @@ document.addEventListener('DOMContentLoaded', function() {
             localStream = null;
         }
         
+        // Limpiar heartbeat
+        if (heartbeatInterval) {
+            clearInterval(heartbeatInterval);
+            heartbeatInterval = null;
+        }
+        
+        if (window.keepAliveInterval) {
+            clearInterval(window.keepAliveInterval);
+            window.keepAliveInterval = null;
+        }
+        
         if (elements.localVideo) elements.localVideo.srcObject = null;
         if (elements.remoteVideo) elements.remoteVideo.srcObject = null;
         if (elements.localOverlay) elements.localOverlay.style.display = 'flex';
@@ -118,6 +131,7 @@ document.addEventListener('DOMContentLoaded', function() {
         isBroadcaster = false;
         isViewer = false;
         currentRoom = null;
+        reconnectAttempts = 0;
         
         if (elements.startBtn) elements.startBtn.disabled = false;
         if (elements.stopBtn) elements.stopBtn.disabled = true;
@@ -130,21 +144,70 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     // ============================================
-    // CONEXIÓN AL SERVIDOR
+    // CONEXIÓN AL SERVIDOR CON RECONEXIÓN
     // ============================================
     function connectToServer() {
         log('Conectando al servidor...');
         
-        socket = io();
+        socket = io({
+            reconnection: true,
+            reconnectionAttempts: Infinity,
+            reconnectionDelay: 1000,
+            reconnectionDelayMax: 5000
+        });
         
         socket.on('connect', () => {
             log('✅ Conectado al servidor', 'SUCCESS');
             updateStatus('Conectado');
+            reconnectAttempts = 0;
+            
+            // Heartbeat cada 15 segundos para mantener conexión
+            if (heartbeatInterval) {
+                clearInterval(heartbeatInterval);
+            }
+            
+            heartbeatInterval = setInterval(() => {
+                if (socket && socket.connected) {
+                    socket.emit('ping');
+                    log('💓 Heartbeat enviado', 'DEBUG');
+                }
+            }, 15000);
+            
+            // Si era broadcaster, reintentar unirse a la sala
+            if (isBroadcaster && currentRoom) {
+                log('🔄 Reunión como broadcaster...', 'INFO');
+                socket.emit('broadcaster-join', currentRoom);
+            }
         });
         
-        socket.on('disconnect', () => {
-            log('❌ Desconectado', 'ERROR');
-            resetUI();
+        socket.on('pong', () => {
+            log('💓 Heartbeat recibido', 'DEBUG');
+        });
+        
+        socket.on('disconnect', (reason) => {
+            log(`❌ Desconectado: ${reason}`, 'ERROR');
+            
+            if (isBroadcaster) {
+                log('🔄 Broadcaster desconectado - Intentando recuperar...', 'WARN');
+                updateStatus('❌ Error de conexión - Recuperando...');
+                
+                // Intentar reconectar automáticamente
+                reconnectAttempts++;
+                
+                setTimeout(() => {
+                    if (!socket.connected) {
+                        socket.connect();
+                        log(`🔄 Intento de reconexión #${reconnectAttempts}...`, 'INFO');
+                    }
+                }, 3000);
+            } else {
+                resetUI();
+            }
+        });
+        
+        socket.on('connect_error', (err) => {
+            log(`❌ Error de conexión: ${err.message}`, 'ERROR');
+            updateStatus('Error de conexión');
         });
         
         socket.on('broadcaster-ready', () => {
@@ -172,6 +235,11 @@ document.addEventListener('DOMContentLoaded', function() {
             log('📡 Transmisor desconectado', 'WARN');
             if (elements.remoteVideo) elements.remoteVideo.srcObject = null;
             if (elements.remoteOverlay) elements.remoteOverlay.style.display = 'flex';
+            resetUI();
+        });
+        
+        socket.on('broadcast-ended', () => {
+            log('🛑 Transmisión finalizada', 'WARN');
             resetUI();
         });
         
@@ -284,6 +352,10 @@ document.addEventListener('DOMContentLoaded', function() {
                             candidate: event.candidate
                         });
                     }
+                };
+                
+                peerConnectionViewer.oniceconnectionstatechange = () => {
+                    log(`🧊 ICE state: ${peerConnectionViewer.iceConnectionState}`, 'INFO');
                 };
             }
             
@@ -402,7 +474,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     // ============================================
-    // FUNCIÓN TRANSMITIR - CALIDAD MEJORADA 480p
+    // FUNCIÓN TRANSMITIR - CON ANTI-CIERRE
     // ============================================
     async function startBroadcast() {
         try {
@@ -414,7 +486,7 @@ document.addEventListener('DOMContentLoaded', function() {
             
             log('📤 Solicitando pantalla...', 'BROADCASTER');
             
-            // CALIDAD MEJORADA 480p (estable y se ve bien)
+            // CALIDAD MEJORADA 480p
             const videoConstraints = {
                 width: { ideal: 854, max: 1024 },
                 height: { ideal: 480, max: 576 },
@@ -430,6 +502,35 @@ document.addEventListener('DOMContentLoaded', function() {
             const track = localStream.getVideoTracks()[0];
             const settings = track.getSettings();
             log(`✅ Captura obtenida - Resolución: ${settings.width}x${settings.height}`, 'SUCCESS');
+            
+            // ===== ANTI-CIERRE: Keepalive cada 10 segundos =====
+            if (window.keepAliveInterval) {
+                clearInterval(window.keepAliveInterval);
+            }
+            
+            window.keepAliveInterval = setInterval(() => {
+                if (localStream && isBroadcaster) {
+                    log('💓 Manteniendo transmisión activa', 'DEBUG');
+                    // Forzar un pequeño movimiento enviando un ping
+                    if (socket && socket.connected) {
+                        socket.emit('keep-alive', Date.now());
+                    }
+                } else {
+                    clearInterval(window.keepAliveInterval);
+                }
+            }, 10000); // Cada 10 segundos
+            
+            // ===== MANEJAR CIERRE DE CAPTURA =====
+            track.onended = () => {
+                log('⚠️ El usuario cerró la ventana de captura', 'WARN');
+                updateStatus('⚠️ Transmisión detenida por el usuario');
+                
+                if (window.keepAliveInterval) {
+                    clearInterval(window.keepAliveInterval);
+                }
+                
+                stopBroadcast();
+            };
             
             if (elements.localVideo) {
                 elements.localVideo.srcObject = localStream;
@@ -448,9 +549,7 @@ document.addEventListener('DOMContentLoaded', function() {
             socket.emit('broadcaster-join', roomName);
             log(`📡 Transmitiendo en ${roomName}`, 'BROADCASTER');
             
-            localStream.getVideoTracks()[0].onended = () => stopBroadcast();
-            
-            updateStatus(`📡 Transmitiendo ${settings.width}x${settings.height}`);
+            updateStatus(`📡 Transmitiendo ${settings.width}x${settings.height} - Anti-cierre activo`);
             
         } catch (err) {
             log(`❌ Error: ${err.message}`, 'ERROR');
@@ -459,20 +558,32 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     function stopBroadcast() {
-        log('⏹️ Deteniendo...', 'BROADCASTER');
+        log('⏹️ Deteniendo transmisión...', 'BROADCASTER');
         
+        // Limpiar keepalive
+        if (window.keepAliveInterval) {
+            clearInterval(window.keepAliveInterval);
+            window.keepAliveInterval = null;
+            log('🧹 Keepalive detenido', 'INFO');
+        }
+        
+        // Cerrar todas las conexiones de viewers
         for (const [id, pc] of peerConnections.entries()) {
             pc.close();
         }
         peerConnections.clear();
         
         if (localStream) {
-            localStream.getTracks().forEach(t => t.stop());
+            localStream.getTracks().forEach(t => {
+                t.stop();
+                log(`⏹️ Track ${t.kind} detenido`, 'INFO');
+            });
             localStream = null;
         }
         
         if (currentRoom && isBroadcaster) {
             socket.emit('stop-broadcast', currentRoom);
+            log('📡 Notificación de fin enviada', 'INFO');
         }
         
         if (elements.localVideo) elements.localVideo.srcObject = null;
@@ -509,6 +620,7 @@ document.addEventListener('DOMContentLoaded', function() {
             } else if (remoteVideo.msRequestFullscreen) {
                 remoteVideo.msRequestFullscreen();
             }
+            log('⛶ Pantalla completa activada', 'INFO');
         } else {
             if (document.exitFullscreen) {
                 document.exitFullscreen();
@@ -517,6 +629,7 @@ document.addEventListener('DOMContentLoaded', function() {
             } else if (document.msExitFullscreen) {
                 document.msExitFullscreen();
             }
+            log('⛶ Saliendo de pantalla completa', 'INFO');
         }
     }
     
@@ -540,7 +653,12 @@ document.addEventListener('DOMContentLoaded', function() {
     if (elements.roomId) elements.roomId.value = 'sala1';
     if (elements.viewRoomId) elements.viewRoomId.value = 'sala1';
     
+    if (elements.deviceInfo) {
+        const isMobile = /mobile|android|iphone|ipad/i.test(navigator.userAgent);
+        elements.deviceInfo.textContent = isMobile ? '📱 MÓVIL' : '💻 PC';
+    }
+    
     setupFullscreen();
     
-    log('✅ Inicialización completa - Calidad 480p', 'SUCCESS');
+    log('✅ Inicialización completa - Modo anti-cierre activado', 'SUCCESS');
 });
