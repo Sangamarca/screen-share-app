@@ -1,5 +1,5 @@
 // ============================================
-// VERSIÓN FINAL - CON TODO CORREGIDO
+// VERSIÓN FINAL - SOPORTE PARA MÚLTIPLES VIEWERS
 // ============================================
 
 console.log('🚀 Cliente iniciando...');
@@ -69,11 +69,11 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     // ============================================
-    // ESTADO
+    // ESTADO (MODIFICADO PARA MÚLTIPLES VIEWERS)
     // ============================================
     let socket = null;
     let localStream = null;
-    let peerConnection = null;
+    let peerConnections = new Map(); // CAMBIO: ahora es un Map para múltiples viewers
     let currentRoom = null;
     let isBroadcaster = false;
     
@@ -106,10 +106,14 @@ document.addEventListener('DOMContentLoaded', function() {
             localStream.getTracks().forEach(t => t.stop());
             localStream = null;
         }
-        if (peerConnection) {
-            peerConnection.close();
-            peerConnection = null;
+        
+        // Cerrar todas las conexiones de viewers
+        for (const [viewerId, pc] of peerConnections.entries()) {
+            pc.close();
+            log(`🧹 Conexión con ${viewerId} cerrada`, 'INFO');
         }
+        peerConnections.clear();
+        
         if (elements.localVideo) elements.localVideo.srcObject = null;
         if (elements.remoteVideo) elements.remoteVideo.srcObject = null;
         if (elements.localOverlay) elements.localOverlay.style.display = 'flex';
@@ -194,12 +198,14 @@ document.addEventListener('DOMContentLoaded', function() {
         });
         
         // ============================================
-        // EVENTO CRÍTICO: viewer-joined (SOLO BROADCASTER)
+        // EVENTO CRÍTICO: viewer-joined (MULTIPLE VIEWERS)
         // ============================================
         socket.on('viewer-joined', (data) => {
+            const viewerId = data.viewerId;
+            
             // Mensaje SUPER visible
             console.log('%c🔥 NUEVO VIEWER DETECTADO 🔥', 'background: red; color: white; font-size: 16px');
-            log(`🔥 NUEVO VIEWER: ${data.viewerId}`, 'CRITICAL');
+            log(`🔥 NUEVO VIEWER: ${viewerId}`, 'CRITICAL');
             log(`👥 Total viewers: ${data.totalViewers}`, 'INFO');
             
             if (!isBroadcaster) {
@@ -207,40 +213,76 @@ document.addEventListener('DOMContentLoaded', function() {
                 return;
             }
             
-            if (!peerConnection) {
-                log('❌ peerConnection no existe', 'ERROR');
-                return;
+            // Crear nueva peer connection para este viewer
+            log(`🆕 Creando PeerConnection para viewer ${viewerId}`, 'INFO');
+            const pc = new RTCPeerConnection(configuration);
+            
+            // Añadir tracks locales
+            if (localStream) {
+                localStream.getTracks().forEach(track => {
+                    pc.addTrack(track, localStream);
+                    log(`➕ Track añadido a conexión de ${viewerId}`, 'INFO');
+                });
             }
             
-            log('📤 Creando oferta para nuevo viewer...', 'INFO');
+            // Manejar ICE candidates para este viewer
+            pc.onicecandidate = (event) => {
+                if (event.candidate) {
+                    socket.emit('ice-candidate', {
+                        target: viewerId,
+                        candidate: event.candidate
+                    });
+                }
+            };
             
-            peerConnection.createOffer()
+            pc.oniceconnectionstatechange = () => {
+                log(`🧊 ICE (viewer ${viewerId}): ${pc.iceConnectionState}`, 'INFO');
+            };
+            
+            // Guardar en Map
+            peerConnections.set(viewerId, pc);
+            
+            // Crear oferta para este viewer
+            log(`📤 Creando oferta para viewer ${viewerId}...`, 'INFO');
+            
+            pc.createOffer()
                 .then(offer => {
-                    log('✅ Oferta creada', 'SUCCESS');
-                    return peerConnection.setLocalDescription(offer);
+                    log(`✅ Oferta creada para ${viewerId}`, 'SUCCESS');
+                    return pc.setLocalDescription(offer);
                 })
                 .then(() => {
-                    log(`📤 Enviando oferta a viewer ${data.viewerId}...`, 'INFO');
+                    log(`📤 Enviando oferta a viewer ${viewerId}...`, 'INFO');
                     
                     socket.emit('offer', {
-                        target: data.viewerId,
-                        offer: peerConnection.localDescription
+                        target: viewerId,
+                        offer: pc.localDescription
                     });
                     
-                    log('✅ Oferta enviada', 'SUCCESS');
+                    log(`✅ Oferta enviada a ${viewerId}`, 'SUCCESS');
                 })
                 .catch(err => {
-                    log(`❌ Error creando oferta: ${err.message}`, 'ERROR');
+                    log(`❌ Error creando oferta para ${viewerId}: ${err.message}`, 'ERROR');
                 });
         });
         
+        // ============================================
+        // MANEJO DE DESCONEXIÓN DE VIEWERS
+        // ============================================
         socket.on('viewer-left', (data) => {
-            log(`👋 Viewer ${data.viewerId} desconectado`, 'INFO');
+            const viewerId = data.viewerId;
+            log(`👋 Viewer ${viewerId} desconectado`, 'INFO');
             log(`👥 Viewers restantes: ${data.totalViewers}`, 'INFO');
+            
+            const pc = peerConnections.get(viewerId);
+            if (pc) {
+                pc.close();
+                peerConnections.delete(viewerId);
+                log(`🧹 Conexión de ${viewerId} limpiada`, 'INFO');
+            }
         });
         
         // ============================================
-        // EVENTOS WEBRTC
+        // EVENTOS WEBRTC (PARA VIEWER)
         // ============================================
         socket.on('offer', handleOffer);
         socket.on('answer', handleAnswer);
@@ -248,17 +290,18 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     // ============================================
-    // HANDLERS WEBRTC
+    // HANDLERS WEBRTC (PARA VIEWER)
     // ============================================
     async function handleOffer(data) {
         log(`📥 OFERTA RECIBIDA del broadcaster ${data.from}`, 'SUCCESS');
         
         try {
-            if (!peerConnection) {
+            // Como viewer, solo tenemos UNA peer connection (la del broadcaster)
+            if (!peerConnections.has('broadcaster')) {
                 log('🆕 Creando PeerConnection como viewer', 'INFO');
-                peerConnection = new RTCPeerConnection(configuration);
+                const pc = new RTCPeerConnection(configuration);
                 
-                peerConnection.ontrack = (event) => {
+                pc.ontrack = (event) => {
                     log('🎥 VIDEO RECIBIDO 🎥', 'SUCCESS');
                     log(`   Kind: ${event.track.kind}`, 'INFO');
                     
@@ -268,10 +311,15 @@ document.addEventListener('DOMContentLoaded', function() {
                             elements.remoteOverlay.style.display = 'none';
                         }
                         updateStatus('✅ Video recibido');
+                        
+                        // Intentar reproducir
+                        elements.remoteVideo.play()
+                            .then(() => log('✅ Video reproduciéndose', 'SUCCESS'))
+                            .catch(err => log(`⚠️ Error al reproducir: ${err.message}`, 'WARN'));
                     }
                 };
                 
-                peerConnection.onicecandidate = (event) => {
+                pc.onicecandidate = (event) => {
                     if (event.candidate) {
                         socket.emit('ice-candidate', {
                             target: data.from,
@@ -280,24 +328,28 @@ document.addEventListener('DOMContentLoaded', function() {
                     }
                 };
                 
-                peerConnection.oniceconnectionstatechange = () => {
-                    log(`🧊 ICE state: ${peerConnection.iceConnectionState}`, 'INFO');
-                    if (peerConnection.iceConnectionState === 'connected') {
+                pc.oniceconnectionstatechange = () => {
+                    log(`🧊 ICE state: ${pc.iceConnectionState}`, 'INFO');
+                    if (pc.iceConnectionState === 'connected') {
                         updateStatus('✅ Conexión establecida');
                     }
                 };
+                
+                peerConnections.set('broadcaster', pc);
             }
             
+            const pc = peerConnections.get('broadcaster');
+            
             log('📥 Estableciendo descripción remota...', 'INFO');
-            await peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
+            await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
             log('✅ Remote description set', 'SUCCESS');
             
             log('📤 Creando respuesta...', 'INFO');
-            const answer = await peerConnection.createAnswer();
+            const answer = await pc.createAnswer();
             log('✅ Answer creada', 'SUCCESS');
             
             log('📤 Estableciendo descripción local...', 'INFO');
-            await peerConnection.setLocalDescription(answer);
+            await pc.setLocalDescription(answer);
             log('✅ Local description set', 'SUCCESS');
             
             log(`📤 Enviando respuesta a broadcaster ${data.from}...`, 'INFO');
@@ -312,13 +364,20 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
     
+    // ============================================
+    // HANDLERS WEBRTC (PARA BROADCASTER - MODIFICADOS)
+    // ============================================
     async function handleAnswer(data) {
-        log(`📥 Respuesta recibida de viewer ${data.from}`, 'SUCCESS');
+        const viewerId = data.from;
+        log(`📥 Respuesta recibida de viewer ${viewerId}`, 'SUCCESS');
+        
         try {
-            if (peerConnection) {
-                await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
-                log('✅ Remote description set (answer)', 'SUCCESS');
-                log('✅ Conexión WebRTC establecida', 'SUCCESS');
+            const pc = peerConnections.get(viewerId);
+            if (pc) {
+                await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+                log(`✅ Remote description set para ${viewerId}`, 'SUCCESS');
+            } else {
+                log(`❌ No se encontró peer connection para ${viewerId}`, 'ERROR');
             }
         } catch (err) {
             log(`❌ Error en handleAnswer: ${err.message}`, 'ERROR');
@@ -326,11 +385,17 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     async function handleIceCandidate(data) {
-        log(`🧊 ICE candidate recibido`, 'INFO');
+        const viewerId = data.from;
+        log(`🧊 ICE candidate recibido de ${viewerId}`, 'INFO');
+        
         try {
-            if (peerConnection) {
-                await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
-                log('✅ ICE candidate agregado', 'SUCCESS');
+            // Buscar en el Map de peer connections
+            const pc = peerConnections.get(viewerId);
+            if (pc) {
+                await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+                log(`✅ ICE candidate agregado para ${viewerId}`, 'SUCCESS');
+            } else {
+                log(`⚠️ No hay peer connection para ${viewerId}`, 'WARN');
             }
         } catch (err) {
             log(`❌ Error ICE: ${err.message}`, 'ERROR');
@@ -371,9 +436,10 @@ document.addEventListener('DOMContentLoaded', function() {
     function leaveRoom() {
         log('👋 Saliendo de la sala', 'VIEWER');
         
-        if (peerConnection) {
-            peerConnection.close();
-            peerConnection = null;
+        const pc = peerConnections.get('broadcaster');
+        if (pc) {
+            pc.close();
+            peerConnections.delete('broadcaster');
         }
         
         if (elements.remoteVideo) {
@@ -436,24 +502,8 @@ document.addEventListener('DOMContentLoaded', function() {
             socket.emit('broadcaster-join', roomName);
             log(`📡 Unido a sala: ${roomName} como BROADCASTER`, 'BROADCASTER');
             
-            peerConnection = new RTCPeerConnection(configuration);
-            localStream.getTracks().forEach(track => {
-                peerConnection.addTrack(track, localStream);
-                log(`➕ Track añadido: ${track.kind}`, 'INFO');
-            });
-            
-            peerConnection.onicecandidate = (event) => {
-                if (event.candidate) {
-                    socket.emit('ice-candidate', {
-                        target: 'broadcast',
-                        candidate: event.candidate
-                    });
-                }
-            };
-            
-            peerConnection.oniceconnectionstatechange = () => {
-                log(`🧊 ICE broadcaster: ${peerConnection.iceConnectionState}`, 'INFO');
-            };
+            // NOTA: Ya no creamos una peer connection aquí
+            // Se crearán dinámicamente cuando lleguen viewers
             
             localStream.getVideoTracks()[0].onended = () => {
                 log('⏹️ Captura finalizada por el usuario', 'WARN');
@@ -471,17 +521,22 @@ document.addEventListener('DOMContentLoaded', function() {
     function stopBroadcast() {
         log('⏹️ Deteniendo transmisión...', 'BROADCASTER');
         
+        // Cerrar todas las conexiones de viewers
+        for (const [viewerId, pc] of peerConnections.entries()) {
+            pc.close();
+            log(`🧹 Conexión con ${viewerId} cerrada`, 'INFO');
+        }
+        peerConnections.clear();
+        
         if (localStream) {
             localStream.getTracks().forEach(t => t.stop());
             localStream = null;
         }
-        if (peerConnection) {
-            peerConnection.close();
-            peerConnection = null;
-        }
+        
         if (currentRoom && isBroadcaster) {
             socket.emit('stop-broadcast', currentRoom);
         }
+        
         if (elements.localVideo) elements.localVideo.srcObject = null;
         if (elements.localOverlay) elements.localOverlay.style.display = 'flex';
         
@@ -512,6 +567,16 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     if (elements.viewRoomId) {
         elements.viewRoomId.value = 'sala1';
+    }
+    
+    // Agregar evento de click para reproducción en móvil
+    if (elements.remoteVideo) {
+        elements.remoteVideo.addEventListener('click', () => {
+            elements.remoteVideo.play();
+            if (elements.remoteOverlay) {
+                elements.remoteOverlay.style.display = 'none';
+            }
+        });
     }
     
     log('✅ Inicialización completa', 'SUCCESS');
