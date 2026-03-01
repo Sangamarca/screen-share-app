@@ -1,8 +1,8 @@
 // ============================================
-// VERSIÓN OPTIMIZADA - CALIDAD ADAPTATIVA
+// VERSIÓN FINAL - CON PANTALLA COMPLETA Y OPTIMIZACIONES
 // ============================================
 
-console.log('🚀 Cliente optimizado iniciando...');
+console.log('🚀 Cliente final iniciando...');
 
 // Panel de diagnóstico
 const diagnosticPanel = document.createElement('div');
@@ -59,7 +59,8 @@ document.addEventListener('DOMContentLoaded', function() {
         remoteOverlay: document.getElementById('remoteOverlay'),
         statusText: document.getElementById('statusText'),
         viewerCount: document.getElementById('viewerCount'),
-        qualityIndicator: document.getElementById('qualityIndicator')
+        deviceInfo: document.getElementById('deviceInfo'),
+        fullscreenBtn: document.getElementById('fullscreenBtn')
     };
     
     // ============================================
@@ -72,7 +73,6 @@ document.addEventListener('DOMContentLoaded', function() {
     let currentRoom = null;
     let isBroadcaster = false;
     let isViewer = false;
-    let currentQuality = 'auto'; // auto, baja, media, alta
     
     // ============================================
     // CONFIGURACIÓN STUN
@@ -91,28 +91,6 @@ document.addEventListener('DOMContentLoaded', function() {
     function updateStatus(msg) {
         log(msg, 'STATUS');
         if (elements.statusText) elements.statusText.textContent = msg;
-    }
-    
-    function updateQualityIndicator() {
-        if (elements.qualityIndicator) {
-            const viewers = peerConnections.size;
-            let quality = 'ALTA';
-            let color = '#28a745';
-            
-            if (viewers >= 4) {
-                quality = 'BAJA (10fps, 480p)';
-                color = '#dc3545';
-            } else if (viewers >= 2) {
-                quality = 'MEDIA (15fps, 640p)';
-                color = '#ffc107';
-            } else {
-                quality = 'ALTA (30fps, 720p)';
-                color = '#28a745';
-            }
-            
-            elements.qualityIndicator.textContent = `📊 Calidad: ${quality} | Viewers: ${viewers}`;
-            elements.qualityIndicator.style.color = color;
-        }
     }
     
     function resetUI() {
@@ -150,7 +128,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         if (elements.leaveBtn) elements.leaveBtn.disabled = true;
         if (elements.viewerCount) elements.viewerCount.textContent = '0 espectadores';
-        if (elements.qualityIndicator) elements.qualityIndicator.textContent = '';
     }
     
     // ============================================
@@ -204,9 +181,6 @@ document.addEventListener('DOMContentLoaded', function() {
             if (elements.viewerCount) {
                 elements.viewerCount.textContent = `${data.total} espectadores`;
             }
-            if (isBroadcaster) {
-                updateQualityIndicator();
-            }
         });
         
         // ============================================
@@ -220,9 +194,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 log('❌ No soy broadcaster o no hay stream', 'ERROR');
                 return;
             }
-            
-            // Actualizar calidad según número de viewers
-            adaptQualityToViewers();
             
             // Crear nueva conexión para este viewer
             log(`🆕 Creando conexión para ${viewerId}`, 'INFO');
@@ -246,7 +217,6 @@ document.addEventListener('DOMContentLoaded', function() {
             };
             
             peerConnections.set(viewerId, pc);
-            updateQualityIndicator();
             
             // Crear oferta
             pc.createOffer()
@@ -277,9 +247,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 peerConnections.delete(viewerId);
                 log(`🧹 Conexión de ${viewerId} eliminada`, 'INFO');
             }
-            
-            adaptQualityToViewers();
-            updateQualityIndicator();
         });
         
         // ============================================
@@ -288,48 +255,6 @@ document.addEventListener('DOMContentLoaded', function() {
         socket.on('offer', handleOffer);
         socket.on('answer', handleAnswer);
         socket.on('ice-candidate', handleIceCandidate);
-    }
-    
-    // ============================================
-    // FUNCIÓN DE CALIDAD ADAPTATIVA (NUEVA)
-    // ============================================
-    function adaptQualityToViewers() {
-        if (!isBroadcaster || !localStream) return;
-        
-        const viewers = peerConnections.size;
-        let videoConstraints = {};
-        
-        if (viewers >= 4) {
-            // Calidad BAJA - 480p a 10fps
-            videoConstraints = {
-                width: { ideal: 480 },
-                height: { ideal: 270 },
-                frameRate: { ideal: 10 }
-            };
-            currentQuality = 'baja';
-            log('📊 Calidad BAJA (10fps, 480p) para ' + viewers + ' viewers', 'INFO');
-        } else if (viewers >= 2) {
-            // Calidad MEDIA - 640p a 15fps
-            videoConstraints = {
-                width: { ideal: 640 },
-                height: { ideal: 360 },
-                frameRate: { ideal: 15 }
-            };
-            currentQuality = 'media';
-            log('📊 Calidad MEDIA (15fps, 640p) para ' + viewers + ' viewers', 'INFO');
-        } else {
-            // Calidad ALTA - 720p a 30fps
-            videoConstraints = {
-                width: { ideal: 1280 },
-                height: { ideal: 720 },
-                frameRate: { ideal: 30 }
-            };
-            currentQuality = 'alta';
-            log('📊 Calidad ALTA (30fps, 720p) para ' + viewers + ' viewers', 'INFO');
-        }
-        
-        // Aplicar nueva calidad (solo si hay cambios significativos)
-        // Nota: Esto requiere recrear el stream, lo haremos en startBroadcast
     }
     
     // ============================================
@@ -492,7 +417,7 @@ document.addEventListener('DOMContentLoaded', function() {
             
             log('📤 Solicitando pantalla...', 'BROADCASTER');
             
-            // CONFIGURACIÓN DE CALIDAD POR DEFECTO (MEDIA)
+            // Calidad balanceada para múltiples viewers
             const videoConstraints = {
                 width: { ideal: 640 },
                 height: { ideal: 360 },
@@ -525,7 +450,7 @@ document.addEventListener('DOMContentLoaded', function() {
             
             localStream.getVideoTracks()[0].onended = () => stopBroadcast();
             
-            updateStatus(`📡 Transmitiendo (calidad media 640p)`);
+            updateStatus(`📡 Transmitiendo en ${roomName}`);
             
         } catch (err) {
             log(`❌ Error: ${err.message}`, 'ERROR');
@@ -554,7 +479,79 @@ document.addEventListener('DOMContentLoaded', function() {
         if (elements.localOverlay) elements.localOverlay.style.display = 'flex';
         
         resetUI();
-        updateStatus('⏹️ Detenida');
+        updateStatus('⏹️ Transmisión detenida');
+    }
+    
+    // ============================================
+    // FUNCIÓN DE PANTALLA COMPLETA
+    // ============================================
+    function setupFullscreen() {
+        const remoteVideo = elements.remoteVideo;
+        const fullscreenBtn = elements.fullscreenBtn;
+        
+        if (!remoteVideo) {
+            log('⚠️ Elemento remoteVideo no encontrado', 'WARN');
+            return;
+        }
+        
+        if (!fullscreenBtn) {
+            log('⚠️ Botón fullscreen no encontrado', 'WARN');
+            return;
+        }
+        
+        fullscreenBtn.addEventListener('click', toggleFullscreen);
+        remoteVideo.addEventListener('dblclick', toggleFullscreen);
+        
+        log('✅ Botón de pantalla completa configurado', 'SUCCESS');
+    }
+    
+    function toggleFullscreen() {
+        const remoteVideo = elements.remoteVideo;
+        if (!remoteVideo) return;
+        
+        if (!document.fullscreenElement) {
+            // Entrar en pantalla completa
+            if (remoteVideo.requestFullscreen) {
+                remoteVideo.requestFullscreen();
+            } else if (remoteVideo.webkitRequestFullscreen) {
+                remoteVideo.webkitRequestFullscreen();
+            } else if (remoteVideo.msRequestFullscreen) {
+                remoteVideo.msRequestFullscreen();
+            }
+            log('⛶ Pantalla completa activada', 'INFO');
+        } else {
+            // Salir de pantalla completa
+            if (document.exitFullscreen) {
+                document.exitFullscreen();
+            } else if (document.webkitExitFullscreen) {
+                document.webkitExitFullscreen();
+            } else if (document.msExitFullscreen) {
+                document.msExitFullscreen();
+            }
+            log('⛶ Saliendo de pantalla completa', 'INFO');
+        }
+    }
+    
+    // Detectar cambios en pantalla completa
+    document.addEventListener('fullscreenchange', updateFullscreenButton);
+    document.addEventListener('webkitfullscreenchange', updateFullscreenButton);
+    document.addEventListener('mozfullscreenchange', updateFullscreenButton);
+    document.addEventListener('MSFullscreenChange', updateFullscreenButton);
+    
+    function updateFullscreenButton() {
+        const fullscreenBtn = elements.fullscreenBtn;
+        if (fullscreenBtn) {
+            if (document.fullscreenElement || 
+                document.webkitFullscreenElement || 
+                document.mozFullScreenElement || 
+                document.msFullscreenElement) {
+                fullscreenBtn.textContent = '✕';
+                fullscreenBtn.title = 'Salir de pantalla completa';
+            } else {
+                fullscreenBtn.textContent = '⛶';
+                fullscreenBtn.title = 'Pantalla completa';
+            }
+        }
     }
     
     // ============================================
@@ -570,28 +567,13 @@ document.addEventListener('DOMContentLoaded', function() {
     if (elements.roomId) elements.roomId.value = 'sala1';
     if (elements.viewRoomId) elements.viewRoomId.value = 'sala1';
     
-    // Crear indicador de calidad
-    const qualityDiv = document.createElement('div');
-    qualityDiv.id = 'qualityIndicator';
-    qualityDiv.style.cssText = `
-        position: fixed;
-        bottom: 10px;
-        right: 10px;
-        background: rgba(0,0,0,0.7);
-        color: #28a745;
-        padding: 5px 10px;
-        border-radius: 5px;
-        font-size: 12px;
-        z-index: 10001;
-    `;
-    document.body.appendChild(qualityDiv);
-    elements.qualityIndicator = qualityDiv;
-    
-    if (elements.remoteVideo) {
-        elements.remoteVideo.addEventListener('click', () => {
-            elements.remoteVideo.play();
-        });
+    if (elements.deviceInfo) {
+        const isMobile = /mobile|android|iphone|ipad/i.test(navigator.userAgent);
+        elements.deviceInfo.textContent = isMobile ? '📱 MÓVIL' : '💻 PC';
     }
+    
+    // Configurar pantalla completa
+    setupFullscreen();
     
     log('✅ Inicialización completa', 'SUCCESS');
 });
