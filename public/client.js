@@ -1,10 +1,10 @@
 // ============================================
-// VERSIÓN CON DIAGNÓSTICO WEBRTC VISIBLE
+// VERSIÓN COMPLETA - CON MANEJO DE NUEVOS VIEWERS
 // ============================================
 
 console.log('🚀 Iniciando...');
 
-// Crear panel de diagnóstico WebRTC
+// Panel de diagnóstico WebRTC
 const webrtcPanel = document.createElement('div');
 webrtcPanel.style.cssText = `
     position: fixed;
@@ -30,8 +30,6 @@ function webrtcLog(msg) {
     line.textContent = `[${time}] ${msg}`;
     webrtcPanel.appendChild(line);
     webrtcPanel.scrollTop = webrtcPanel.scrollHeight;
-    
-    // Limitar líneas
     while (webrtcPanel.children.length > 8) {
         webrtcPanel.removeChild(webrtcPanel.firstChild);
     }
@@ -42,9 +40,7 @@ webrtcLog('🔧 Panel de diagnóstico WebRTC activado');
 document.addEventListener('DOMContentLoaded', function() {
     console.log('✅ DOM listo');
     
-    // ============================================
-    // ELEMENTOS
-    // ============================================
+    // Elementos del DOM
     const elements = {
         localVideo: document.getElementById('localVideo'),
         remoteVideo: document.getElementById('remoteVideo'),
@@ -59,32 +55,25 @@ document.addEventListener('DOMContentLoaded', function() {
         statusText: document.getElementById('statusText')
     };
     
-    // ============================================
-    // ESTADO
-    // ============================================
+    // Estado
     let socket = null;
     let localStream = null;
     let peerConnection = null;
     let currentRoom = null;
     let isBroadcaster = false;
     
-    // ============================================
-    // CONFIGURACIÓN CON MÚLTIPLES STUN
-    // ============================================
+    // Configuración STUN
     const configuration = {
         iceServers: [
             { urls: 'stun:stun.l.google.com:19302' },
             { urls: 'stun:stun1.l.google.com:19302' },
             { urls: 'stun:stun2.l.google.com:19302' },
-            { urls: 'stun:stun3.l.google.com:19302' },
-            { urls: 'stun:stun4.l.google.com:19302' }
+            { urls: 'stun:stun3.l.google.com:19302' }
         ],
         iceCandidatePoolSize: 10
     };
     
-    // ============================================
-    // FUNCIONES
-    // ============================================
+    // Función de estado
     function updateStatus(msg, isError = false) {
         console.log(`[STATUS] ${msg}`);
         if (elements.statusText) {
@@ -93,9 +82,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
     
-    // ============================================
-    // CONEXIÓN AL SERVIDOR
-    // ============================================
+    // Conectar al servidor
     function connectToServer() {
         updateStatus('Conectando...');
         
@@ -119,17 +106,10 @@ document.addEventListener('DOMContentLoaded', function() {
         socket.on('room-joined', (data) => {
             currentRoom = data.roomId;
             updateStatus(`✅ Unido a sala: ${data.roomId}`);
-            
             if (elements.remoteOverlay) {
                 elements.remoteOverlay.style.display = 'none';
             }
-            
-            if (elements.joinBtn) {
-                elements.joinBtn.disabled = false;
-                elements.joinBtn.textContent = 'Unirse';
-            }
-            
-            webrtcLog('✅ Unido a sala, esperando oferta del broadcaster');
+            webrtcLog(`✅ Unido a sala, esperando oferta del broadcaster`);
         });
         
         socket.on('room-error', (error) => {
@@ -142,17 +122,73 @@ document.addEventListener('DOMContentLoaded', function() {
             if (elements.remoteOverlay) elements.remoteOverlay.style.display = 'flex';
         });
         
-        // Eventos WebRTC
+        // ============================================
+        // EVENTOS WEBRTC (AMBOS LADOS)
+        // ============================================
+        
+        // Para el VIEWER: Recibir oferta del broadcaster
         socket.on('offer', handleOffer);
+        
+        // Para el BROADCASTER: Recibir respuesta del viewer
         socket.on('answer', handleAnswer);
+        
+        // Para ambos: Intercambiar ICE candidates
         socket.on('ice-candidate', handleIceCandidate);
+        
+        // ============================================
+        // EVENTOS ESPECÍFICOS DEL BROADCASTER
+        // ============================================
+        socket.on('viewer-joined', (viewerId) => {
+            webrtcLog(`👁️ NUEVO VIEWER CONECTADO: ${viewerId}`);
+            updateStatus(`👁️ Nuevo espectador conectado`);
+            
+            // Verificar que somos broadcaster
+            if (!isBroadcaster) {
+                webrtcLog('❌ Error: No soy broadcaster');
+                return;
+            }
+            
+            if (!peerConnection) {
+                webrtcLog('❌ Error: peerConnection no existe');
+                return;
+            }
+            
+            webrtcLog('📤 Creando oferta para nuevo viewer...');
+            
+            // Crear oferta para este viewer específico
+            peerConnection.createOffer()
+                .then(offer => {
+                    webrtcLog('✅ Oferta creada');
+                    return peerConnection.setLocalDescription(offer);
+                })
+                .then(() => {
+                    webrtcLog('✅ Descripción local establecida');
+                    webrtcLog(`📤 Enviando oferta a viewer ${viewerId}...`);
+                    
+                    socket.emit('offer', {
+                        target: viewerId,
+                        offer: peerConnection.localDescription
+                    });
+                    
+                    webrtcLog('✅ Oferta enviada');
+                })
+                .catch(err => {
+                    webrtcLog(`❌ Error creando oferta: ${err.message}`);
+                });
+        });
+        
+        socket.on('viewer-left', (data) => {
+            webrtcLog(`👋 Viewer desconectado: ${data.viewerId}`);
+            webrtcLog(`👥 Viewers restantes: ${data.totalViewers}`);
+            updateStatus(`👥 ${data.totalViewers} espectadores`);
+        });
     }
     
     // ============================================
-    // WEBRTC HANDLERS CON DIAGNÓSTICO
+    // HANDLERS WEBRTC (PARA VIEWER)
     // ============================================
     async function handleOffer(data) {
-        webrtcLog('📥 OFERTA RECIBIDA del broadcaster');
+        webrtcLog(`📥 OFERTA RECIBIDA del broadcaster`);
         webrtcLog(`   De: ${data.from}`);
         updateStatus('📥 Recibiendo oferta...');
         
@@ -164,22 +200,17 @@ document.addEventListener('DOMContentLoaded', function() {
                 
                 peerConnection.ontrack = (event) => {
                     webrtcLog('✅ TRACK RECIBIDO - VIDEO LLEGANDO');
-                    webrtcLog(`   Kind: ${event.track.kind}`);
-                    webrtcLog(`   Streams: ${event.streams.length}`);
-                    
                     if (elements.remoteVideo) {
                         elements.remoteVideo.srcObject = event.streams[0];
                         if (elements.remoteOverlay) {
                             elements.remoteOverlay.style.display = 'none';
                         }
                         updateStatus('✅ Video recibido');
-                        webrtcLog('✅ Video mostrado en elemento remoto');
                     }
                 };
                 
                 peerConnection.onicecandidate = (event) => {
                     if (event.candidate) {
-                        webrtcLog(`🧊 ICE candidate generado: ${event.candidate.candidate.substring(0, 50)}...`);
                         socket.emit('ice-candidate', {
                             target: data.from,
                             candidate: event.candidate
@@ -191,58 +222,41 @@ document.addEventListener('DOMContentLoaded', function() {
                     webrtcLog(`🧊 ICE state: ${peerConnection.iceConnectionState}`);
                     if (peerConnection.iceConnectionState === 'connected') {
                         updateStatus('✅ Conexión establecida');
-                        webrtcLog('✅ CONEXIÓN WEBRTC ESTABLECIDA');
                     }
-                    if (peerConnection.iceConnectionState === 'failed') {
-                        updateStatus('❌ Error de conexión', true);
-                        webrtcLog('❌ ICE FAILED - No se puede conectar');
-                    }
-                    if (peerConnection.iceConnectionState === 'disconnected') {
-                        webrtcLog('⚠️ ICE disconnected');
-                    }
-                };
-                
-                peerConnection.onconnectionstatechange = () => {
-                    webrtcLog(`🔌 Connection state: ${peerConnection.connectionState}`);
-                };
-                
-                peerConnection.onsignalingstatechange = () => {
-                    webrtcLog(`🚦 Signaling state: ${peerConnection.signalingState}`);
                 };
             }
             
-            webrtcLog('📥 Estableciendo descripción remota...');
+            // Establecer la oferta como descripción remota
             await peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
-            webrtcLog('✅ Remote description SET');
+            webrtcLog('✅ Remote description set');
             
-            webrtcLog('📤 Creando respuesta...');
+            // Crear respuesta
             const answer = await peerConnection.createAnswer();
             webrtcLog('✅ Answer creada');
             
-            webrtcLog('📤 Estableciendo descripción local...');
+            // Establecer como descripción local
             await peerConnection.setLocalDescription(answer);
-            webrtcLog('✅ Local description SET');
+            webrtcLog('✅ Local description set');
             
-            webrtcLog('📤 Enviando respuesta al broadcaster...');
+            // Enviar respuesta al broadcaster
             socket.emit('answer', {
                 target: data.from,
                 answer: answer
             });
-            webrtcLog('✅ Respuesta enviada');
+            webrtcLog('📤 Respuesta enviada');
             
         } catch (err) {
-            webrtcLog(`❌ ERROR CRÍTICO: ${err.message}`);
+            webrtcLog(`❌ ERROR: ${err.message}`);
             updateStatus(`❌ Error: ${err.message}`, true);
         }
     }
     
     async function handleAnswer(data) {
-        webrtcLog('📥 RESPUESTA RECIBIDA del broadcaster');
+        webrtcLog(`📥 RESPUESTA RECIBIDA del viewer`);
         try {
             if (peerConnection) {
-                webrtcLog('📥 Estableciendo descripción remota (answer)...');
                 await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
-                webrtcLog('✅ Remote description SET (answer)');
+                webrtcLog('✅ Remote description set (answer)');
             }
         } catch (err) {
             webrtcLog(`❌ Error en answer: ${err.message}`);
@@ -250,7 +264,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     async function handleIceCandidate(data) {
-        webrtcLog(`🧊 ICE candidate recibido de ${data.from}`);
+        webrtcLog(`🧊 ICE candidate recibido`);
         try {
             if (peerConnection) {
                 await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
@@ -262,7 +276,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     // ============================================
-    // FUNCIÓN UNIRSE
+    // FUNCIÓN UNIRSE (VIEWER)
     // ============================================
     function joinRoom() {
         const roomName = elements.viewRoomId?.value.trim();
@@ -322,7 +336,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     // ============================================
-    // FUNCIÓN TRANSMITIR
+    // FUNCIÓN TRANSMITIR (BROADCASTER)
     // ============================================
     async function startBroadcast() {
         try {
