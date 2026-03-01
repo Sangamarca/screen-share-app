@@ -1,8 +1,8 @@
 // ============================================
-// VERSIÓN DEFINITIVA - CON HEARTBEAT Y ANTI-CIERRE
+// VERSIÓN 30 FPS - TRANSMISIÓN MÁS FLUIDA
 // ============================================
 
-console.log('🚀 Cliente final iniciando...');
+console.log('🚀 Cliente 30fps iniciando...');
 
 // Panel de diagnóstico
 const diagnosticPanel = document.createElement('div');
@@ -77,7 +77,7 @@ document.addEventListener('DOMContentLoaded', function() {
     let reconnectAttempts = 0;
     
     // ============================================
-    // CONFIGURACIÓN STUN BÁSICA
+    // CONFIGURACIÓN STUN
     // ============================================
     const configuration = {
         iceServers: [
@@ -112,7 +112,6 @@ document.addEventListener('DOMContentLoaded', function() {
             localStream = null;
         }
         
-        // Limpiar heartbeat
         if (heartbeatInterval) {
             clearInterval(heartbeatInterval);
             heartbeatInterval = null;
@@ -144,7 +143,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     // ============================================
-    // CONEXIÓN AL SERVIDOR CON RECONEXIÓN
+    // CONEXIÓN AL SERVIDOR
     // ============================================
     function connectToServer() {
         log('Conectando al servidor...');
@@ -161,7 +160,6 @@ document.addEventListener('DOMContentLoaded', function() {
             updateStatus('Conectado');
             reconnectAttempts = 0;
             
-            // Heartbeat cada 15 segundos para mantener conexión
             if (heartbeatInterval) {
                 clearInterval(heartbeatInterval);
             }
@@ -169,11 +167,10 @@ document.addEventListener('DOMContentLoaded', function() {
             heartbeatInterval = setInterval(() => {
                 if (socket && socket.connected) {
                     socket.emit('ping');
-                    log('💓 Heartbeat enviado', 'DEBUG');
+                    log('💓 Heartbeat', 'DEBUG');
                 }
             }, 15000);
             
-            // Si era broadcaster, reintentar unirse a la sala
             if (isBroadcaster && currentRoom) {
                 log('🔄 Reunión como broadcaster...', 'INFO');
                 socket.emit('broadcaster-join', currentRoom);
@@ -181,23 +178,22 @@ document.addEventListener('DOMContentLoaded', function() {
         });
         
         socket.on('pong', () => {
-            log('💓 Heartbeat recibido', 'DEBUG');
+            log('💓 Pong', 'DEBUG');
         });
         
         socket.on('disconnect', (reason) => {
             log(`❌ Desconectado: ${reason}`, 'ERROR');
             
             if (isBroadcaster) {
-                log('🔄 Broadcaster desconectado - Intentando recuperar...', 'WARN');
-                updateStatus('❌ Error de conexión - Recuperando...');
+                log('🔄 Broadcaster desconectado - Reconectando...', 'WARN');
+                updateStatus('❌ Error - Reconectando...');
                 
-                // Intentar reconectar automáticamente
                 reconnectAttempts++;
                 
                 setTimeout(() => {
                     if (!socket.connected) {
                         socket.connect();
-                        log(`🔄 Intento de reconexión #${reconnectAttempts}...`, 'INFO');
+                        log(`🔄 Intento #${reconnectAttempts}`, 'INFO');
                     }
                 }, 3000);
             } else {
@@ -206,7 +202,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
         
         socket.on('connect_error', (err) => {
-            log(`❌ Error de conexión: ${err.message}`, 'ERROR');
+            log(`❌ Error conexión: ${err.message}`, 'ERROR');
             updateStatus('Error de conexión');
         });
         
@@ -335,7 +331,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 peerConnectionViewer = new RTCPeerConnection(configuration);
                 
                 peerConnectionViewer.ontrack = (event) => {
-                    log('🎥 VIDEO RECIBIDO 🎥', 'SUCCESS');
+                    log('🎥 VIDEO RECIBIDO', 'SUCCESS');
                     if (elements.remoteVideo) {
                         elements.remoteVideo.srcObject = event.streams[0];
                         if (elements.remoteOverlay) {
@@ -474,7 +470,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     // ============================================
-    // FUNCIÓN TRANSMITIR - CON ANTI-CIERRE
+    // FUNCIÓN TRANSMITIR - 30 FPS
     // ============================================
     async function startBroadcast() {
         try {
@@ -486,11 +482,11 @@ document.addEventListener('DOMContentLoaded', function() {
             
             log('📤 Solicitando pantalla...', 'BROADCASTER');
             
-            // CALIDAD MEJORADA 480p
+            // 30 FPS FIJOS - MÁS FLUIDO
             const videoConstraints = {
                 width: { ideal: 854, max: 1024 },
                 height: { ideal: 480, max: 576 },
-                frameRate: { ideal: 20, max: 25 }
+                frameRate: { ideal: 30, max: 30 } // 30 FPS
             };
             
             localStream = await navigator.mediaDevices.getDisplayMedia({
@@ -498,37 +494,24 @@ document.addEventListener('DOMContentLoaded', function() {
                 audio: true
             });
             
-            // Mostrar resolución real
             const track = localStream.getVideoTracks()[0];
             const settings = track.getSettings();
-            log(`✅ Captura obtenida - Resolución: ${settings.width}x${settings.height}`, 'SUCCESS');
+            log(`✅ Captura obtenida - ${settings.width}x${settings.height} @ 30fps`, 'SUCCESS');
             
-            // ===== ANTI-CIERRE: Keepalive cada 10 segundos =====
+            // Keepalive
             if (window.keepAliveInterval) {
                 clearInterval(window.keepAliveInterval);
             }
             
             window.keepAliveInterval = setInterval(() => {
                 if (localStream && isBroadcaster) {
-                    log('💓 Manteniendo transmisión activa', 'DEBUG');
-                    // Forzar un pequeño movimiento enviando un ping
-                    if (socket && socket.connected) {
-                        socket.emit('keep-alive', Date.now());
-                    }
-                } else {
-                    clearInterval(window.keepAliveInterval);
+                    log('💓 Keepalive', 'DEBUG');
                 }
-            }, 10000); // Cada 10 segundos
+            }, 10000);
             
-            // ===== MANEJAR CIERRE DE CAPTURA =====
             track.onended = () => {
-                log('⚠️ El usuario cerró la ventana de captura', 'WARN');
-                updateStatus('⚠️ Transmisión detenida por el usuario');
-                
-                if (window.keepAliveInterval) {
-                    clearInterval(window.keepAliveInterval);
-                }
-                
+                log('⚠️ Captura cerrada', 'WARN');
+                clearInterval(window.keepAliveInterval);
                 stopBroadcast();
             };
             
@@ -549,7 +532,7 @@ document.addEventListener('DOMContentLoaded', function() {
             socket.emit('broadcaster-join', roomName);
             log(`📡 Transmitiendo en ${roomName}`, 'BROADCASTER');
             
-            updateStatus(`📡 Transmitiendo ${settings.width}x${settings.height} - Anti-cierre activo`);
+            updateStatus(`📡 Transmitiendo ${settings.width}x${settings.height} @ 30fps`);
             
         } catch (err) {
             log(`❌ Error: ${err.message}`, 'ERROR');
@@ -560,14 +543,11 @@ document.addEventListener('DOMContentLoaded', function() {
     function stopBroadcast() {
         log('⏹️ Deteniendo transmisión...', 'BROADCASTER');
         
-        // Limpiar keepalive
         if (window.keepAliveInterval) {
             clearInterval(window.keepAliveInterval);
             window.keepAliveInterval = null;
-            log('🧹 Keepalive detenido', 'INFO');
         }
         
-        // Cerrar todas las conexiones de viewers
         for (const [id, pc] of peerConnections.entries()) {
             pc.close();
         }
@@ -576,14 +556,12 @@ document.addEventListener('DOMContentLoaded', function() {
         if (localStream) {
             localStream.getTracks().forEach(t => {
                 t.stop();
-                log(`⏹️ Track ${t.kind} detenido`, 'INFO');
             });
             localStream = null;
         }
         
         if (currentRoom && isBroadcaster) {
             socket.emit('stop-broadcast', currentRoom);
-            log('📡 Notificación de fin enviada', 'INFO');
         }
         
         if (elements.localVideo) elements.localVideo.srcObject = null;
@@ -620,7 +598,6 @@ document.addEventListener('DOMContentLoaded', function() {
             } else if (remoteVideo.msRequestFullscreen) {
                 remoteVideo.msRequestFullscreen();
             }
-            log('⛶ Pantalla completa activada', 'INFO');
         } else {
             if (document.exitFullscreen) {
                 document.exitFullscreen();
@@ -629,7 +606,6 @@ document.addEventListener('DOMContentLoaded', function() {
             } else if (document.msExitFullscreen) {
                 document.msExitFullscreen();
             }
-            log('⛶ Saliendo de pantalla completa', 'INFO');
         }
     }
     
@@ -660,5 +636,5 @@ document.addEventListener('DOMContentLoaded', function() {
     
     setupFullscreen();
     
-    log('✅ Inicialización completa - Modo anti-cierre activado', 'SUCCESS');
+    log('✅ Inicialización completa - Modo 30fps activado', 'SUCCESS');
 });
