@@ -1,8 +1,8 @@
 // ============================================
-// VERSIÓN FINAL - CON PANTALLA COMPLETA Y OPTIMIZACIONES
+// VERSIÓN FINAL - OPTIMIZADA PARA 51 Mbps
 // ============================================
 
-console.log('🚀 Cliente final iniciando...');
+console.log('🚀 Cliente Pro iniciando...');
 
 // Panel de diagnóstico
 const diagnosticPanel = document.createElement('div');
@@ -75,14 +75,20 @@ document.addEventListener('DOMContentLoaded', function() {
     let isViewer = false;
     
     // ============================================
-    // CONFIGURACIÓN STUN
+    // CONFIGURACIÓN STUN OPTIMIZADA
     // ============================================
     const configuration = {
         iceServers: [
             { urls: 'stun:stun.l.google.com:19302' },
             { urls: 'stun:stun1.l.google.com:19302' },
-            { urls: 'stun:stun2.l.google.com:19302' }
-        ]
+            { urls: 'stun:stun2.l.google.com:19302' },
+            { urls: 'stun:stun3.l.google.com:19302' },
+            { urls: 'stun:stun4.l.google.com:19302' }
+        ],
+        iceCandidatePoolSize: 5,
+        bundlePolicy: 'max-bundle',
+        rtcpMuxPolicy: 'require',
+        sdpSemantics: 'unified-plan'
     };
     
     // ============================================
@@ -214,14 +220,21 @@ document.addEventListener('DOMContentLoaded', function() {
             
             pc.oniceconnectionstatechange = () => {
                 log(`🧊 ICE ${viewerId}: ${pc.iceConnectionState}`, 'INFO');
+                if (pc.iceConnectionState === 'connected') {
+                    log(`✅ Viewer ${viewerId} conectado`, 'SUCCESS');
+                }
             };
             
             peerConnections.set(viewerId, pc);
             
-            // Crear oferta
+            // Crear oferta con alto bitrate
             pc.createOffer()
                 .then(offer => {
-                    log(`✅ Oferta creada para ${viewerId}`, 'SUCCESS');
+                    // Forzar bitrate alto para 51 Mbps
+                    offer.sdp = offer.sdp.replace(
+                        /a=fmtp:\d+ (.*)/g,
+                        'a=fmtp:$1;x-google-max-bitrate=8000;x-google-min-bitrate=2000;x-google-start-bitrate=4000'
+                    );
                     return pc.setLocalDescription(offer);
                 })
                 .then(() => {
@@ -287,6 +300,10 @@ document.addEventListener('DOMContentLoaded', function() {
                             candidate: event.candidate
                         });
                     }
+                };
+                
+                peerConnectionViewer.oniceconnectionstatechange = () => {
+                    log(`🧊 ICE state: ${peerConnectionViewer.iceConnectionState}`, 'INFO');
                 };
             }
             
@@ -405,7 +422,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     // ============================================
-    // FUNCIÓN TRANSMITIR (BROADCASTER) - OPTIMIZADA
+    // FUNCIÓN TRANSMITIR - OPTIMIZADA PARA 51 Mbps
     // ============================================
     async function startBroadcast() {
         try {
@@ -417,11 +434,11 @@ document.addEventListener('DOMContentLoaded', function() {
             
             log('📤 Solicitando pantalla...', 'BROADCASTER');
             
-            // Calidad balanceada para múltiples viewers
+            // CALIDAD ALTA - 720p 30fps (aprovechando 51 Mbps)
             const videoConstraints = {
-                width: { ideal: 640 },
-                height: { ideal: 360 },
-                frameRate: { ideal: 15 }
+                width: { ideal: 1280, max: 1280 },
+                height: { ideal: 720, max: 720 },
+                frameRate: { ideal: 30, max: 30 }
             };
             
             localStream = await navigator.mediaDevices.getDisplayMedia({
@@ -429,7 +446,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 audio: true
             });
             
-            log('✅ Captura obtenida - Calidad: 640p, 15fps', 'SUCCESS');
+            // Mostrar resolución real
+            const track = localStream.getVideoTracks()[0];
+            const settings = track.getSettings();
+            log(`✅ Captura obtenida - Resolución: ${settings.width}x${settings.height} @ ${settings.frameRate}fps`, 'SUCCESS');
             
             if (elements.localVideo) {
                 elements.localVideo.srcObject = localStream;
@@ -450,7 +470,7 @@ document.addEventListener('DOMContentLoaded', function() {
             
             localStream.getVideoTracks()[0].onended = () => stopBroadcast();
             
-            updateStatus(`📡 Transmitiendo en ${roomName}`);
+            updateStatus(`📡 Transmitiendo ${settings.width}x${settings.height} - 51 Mbps disponible`);
             
         } catch (err) {
             log(`❌ Error: ${err.message}`, 'ERROR');
@@ -489,15 +509,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const remoteVideo = elements.remoteVideo;
         const fullscreenBtn = elements.fullscreenBtn;
         
-        if (!remoteVideo) {
-            log('⚠️ Elemento remoteVideo no encontrado', 'WARN');
-            return;
-        }
-        
-        if (!fullscreenBtn) {
-            log('⚠️ Botón fullscreen no encontrado', 'WARN');
-            return;
-        }
+        if (!remoteVideo || !fullscreenBtn) return;
         
         fullscreenBtn.addEventListener('click', toggleFullscreen);
         remoteVideo.addEventListener('dblclick', toggleFullscreen);
@@ -510,7 +522,6 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!remoteVideo) return;
         
         if (!document.fullscreenElement) {
-            // Entrar en pantalla completa
             if (remoteVideo.requestFullscreen) {
                 remoteVideo.requestFullscreen();
             } else if (remoteVideo.webkitRequestFullscreen) {
@@ -520,7 +531,6 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             log('⛶ Pantalla completa activada', 'INFO');
         } else {
-            // Salir de pantalla completa
             if (document.exitFullscreen) {
                 document.exitFullscreen();
             } else if (document.webkitExitFullscreen) {
@@ -532,19 +542,13 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
     
-    // Detectar cambios en pantalla completa
     document.addEventListener('fullscreenchange', updateFullscreenButton);
     document.addEventListener('webkitfullscreenchange', updateFullscreenButton);
-    document.addEventListener('mozfullscreenchange', updateFullscreenButton);
-    document.addEventListener('MSFullscreenChange', updateFullscreenButton);
     
     function updateFullscreenButton() {
         const fullscreenBtn = elements.fullscreenBtn;
         if (fullscreenBtn) {
-            if (document.fullscreenElement || 
-                document.webkitFullscreenElement || 
-                document.mozFullScreenElement || 
-                document.msFullscreenElement) {
+            if (document.fullscreenElement || document.webkitFullscreenElement) {
                 fullscreenBtn.textContent = '✕';
                 fullscreenBtn.title = 'Salir de pantalla completa';
             } else {
@@ -572,8 +576,7 @@ document.addEventListener('DOMContentLoaded', function() {
         elements.deviceInfo.textContent = isMobile ? '📱 MÓVIL' : '💻 PC';
     }
     
-    // Configurar pantalla completa
     setupFullscreen();
     
-    log('✅ Inicialización completa', 'SUCCESS');
+    log('✅ Inicialización completa - Modo 51 Mbps activado', 'SUCCESS');
 });

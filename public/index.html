@@ -19,6 +19,7 @@
             --dark: #343a40;
             --light: #f8f9fa;
             --gray: #6c757d;
+            --info: #17a2b8;
         }
 
         /* ===== RESET ===== */
@@ -194,6 +195,16 @@
             box-shadow: 0 5px 20px rgba(108, 117, 125, 0.4);
         }
 
+        .btn-info {
+            background: var(--info);
+            color: white;
+        }
+
+        .btn-info:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(23, 162, 184, 0.4);
+        }
+
         /* ===== ÁREA DE VIDEO ===== */
         .video-section {
             display: grid;
@@ -310,6 +321,19 @@
             object-fit: contain;
         }
 
+        /* ===== INDICADOR DE CALIDAD ===== */
+        .quality-indicator {
+            position: fixed;
+            bottom: 10px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            color: #28a745;
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-size: 12px;
+            z-index: 10001;
+        }
+
         /* ===== ESTADO ===== */
         .status-section {
             background: #f8f9fa;
@@ -402,8 +426,8 @@
     <div class="container">
         <!-- HEADER -->
         <header class="header">
-            <h1>📺 ScreenShare</h1>
-            <p>Comparte tu pantalla en vivo desde cualquier dispositivo</p>
+            <h1>📺 ScreenShare Pro</h1>
+            <p>Transmisión en alta calidad - 51 Mbps optimizado</p>
             <div class="device-info" id="deviceInfo">Detectando dispositivo...</div>
         </header>
 
@@ -415,7 +439,7 @@
                 <div class="panel">
                     <h2>🎥 Quiero transmitir</h2>
                     <div class="input-group">
-                        <input type="text" id="roomId" placeholder="Nombre de la sala">
+                        <input type="text" id="roomId" placeholder="Nombre de la sala" value="sala1">
                         <button class="btn btn-primary" id="startBtn">Iniciar Transmisión</button>
                         <button class="btn btn-danger" id="stopBtn" disabled>Detener</button>
                     </div>
@@ -425,7 +449,7 @@
                 <div class="panel">
                     <h2>👁️ Quiero ver</h2>
                     <div class="input-group">
-                        <input type="text" id="viewRoomId" placeholder="Nombre de la sala">
+                        <input type="text" id="viewRoomId" placeholder="Nombre de la sala" value="sala1">
                         <button class="btn btn-success" id="joinBtn">Unirse</button>
                         <button class="btn btn-secondary" id="leaveBtn" disabled>Salir</button>
                     </div>
@@ -484,8 +508,8 @@
 
         <!-- FOOTER -->
         <footer class="footer">
-            <p>ScreenShare - Transmisión en vivo WebRTC</p>
-            <p class="small">Compatible con PC, Móvil, Tablet y TV</p>
+            <p>ScreenShare Pro - Transmisión en vivo WebRTC</p>
+            <p class="small">Optimizado para 51 Mbps - Compatible con PC, Móvil, Tablet y TV</p>
         </footer>
     </div>
 

@@ -123,10 +123,10 @@ io.on('connection', (socket) => {
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`
-  🚀 SERVIDOR FINAL
-  ═════════════════
+  🚀 SERVIDOR PRO - OPTIMIZADO 51 Mbps
+  ═══════════════════════════════════
   📡 Puerto: ${PORT}
-  ✅ Pantalla completa incluida
-  ✅ Optimizado para múltiples viewers
+  ✅ Calidad 720p 30fps habilitada
+  ✅ Soporte múltiples viewers
   `);
 });
