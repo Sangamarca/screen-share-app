@@ -1,8 +1,43 @@
 // ============================================
-// VERSIÓN CON WEBRTC MEJORADO PARA MÓVIL
+// VERSIÓN CON DIAGNÓSTICO WEBRTC VISIBLE
 // ============================================
 
 console.log('🚀 Iniciando...');
+
+// Crear panel de diagnóstico WebRTC
+const webrtcPanel = document.createElement('div');
+webrtcPanel.style.cssText = `
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: #1a1a1a;
+    color: #00ff00;
+    font-family: monospace;
+    font-size: 12px;
+    padding: 10px;
+    z-index: 10000;
+    max-height: 150px;
+    overflow-y: auto;
+    border-top: 2px solid #00ff00;
+`;
+document.body.appendChild(webrtcPanel);
+
+function webrtcLog(msg) {
+    const time = new Date().toLocaleTimeString();
+    console.log(`[WEBRTC] ${msg}`);
+    const line = document.createElement('div');
+    line.textContent = `[${time}] ${msg}`;
+    webrtcPanel.appendChild(line);
+    webrtcPanel.scrollTop = webrtcPanel.scrollHeight;
+    
+    // Limitar líneas
+    while (webrtcPanel.children.length > 8) {
+        webrtcPanel.removeChild(webrtcPanel.firstChild);
+    }
+}
+
+webrtcLog('🔧 Panel de diagnóstico WebRTC activado');
 
 document.addEventListener('DOMContentLoaded', function() {
     console.log('✅ DOM listo');
@@ -42,52 +77,20 @@ document.addEventListener('DOMContentLoaded', function() {
             { urls: 'stun:stun1.l.google.com:19302' },
             { urls: 'stun:stun2.l.google.com:19302' },
             { urls: 'stun:stun3.l.google.com:19302' },
-            { urls: 'stun:stun4.l.google.com:19302' },
-            { urls: 'stun:stun.ekiga.net' },
-            { urls: 'stun:stun.ideasip.com' },
-            { urls: 'stun:stun.schlund.de' }
+            { urls: 'stun:stun4.l.google.com:19302' }
         ],
-        iceCandidatePoolSize: 10,
-        iceTransportPolicy: 'all',
-        bundlePolicy: 'max-bundle',
-        rtcpMuxPolicy: 'require'
+        iceCandidatePoolSize: 10
     };
     
     // ============================================
     // FUNCIONES
     // ============================================
     function updateStatus(msg, isError = false) {
-        console.log(`[${new Date().toLocaleTimeString()}] ${msg}`);
+        console.log(`[STATUS] ${msg}`);
         if (elements.statusText) {
             elements.statusText.textContent = msg;
             elements.statusText.style.color = isError ? '#dc3545' : '#28a745';
         }
-    }
-    
-    function resetUI() {
-        if (localStream) {
-            localStream.getTracks().forEach(t => t.stop());
-            localStream = null;
-        }
-        if (peerConnection) {
-            peerConnection.close();
-            peerConnection = null;
-        }
-        if (elements.localVideo) elements.localVideo.srcObject = null;
-        if (elements.remoteVideo) elements.remoteVideo.srcObject = null;
-        if (elements.localOverlay) elements.localOverlay.style.display = 'flex';
-        if (elements.remoteOverlay) elements.remoteOverlay.style.display = 'flex';
-        
-        isBroadcaster = false;
-        currentRoom = null;
-        
-        if (elements.startBtn) elements.startBtn.disabled = false;
-        if (elements.stopBtn) elements.stopBtn.disabled = true;
-        if (elements.joinBtn) {
-            elements.joinBtn.disabled = false;
-            elements.joinBtn.textContent = 'Unirse';
-        }
-        if (elements.leaveBtn) elements.leaveBtn.disabled = true;
     }
     
     // ============================================
@@ -107,7 +110,6 @@ document.addEventListener('DOMContentLoaded', function() {
         
         socket.on('disconnect', () => {
             updateStatus('❌ Desconectado', true);
-            resetUI();
         });
         
         socket.on('broadcaster-ready', () => {
@@ -127,19 +129,17 @@ document.addEventListener('DOMContentLoaded', function() {
                 elements.joinBtn.textContent = 'Unirse';
             }
             
-            // Aquí NO creamos peer connection - el broadcaster nos enviará la oferta
+            webrtcLog('✅ Unido a sala, esperando oferta del broadcaster');
         });
         
         socket.on('room-error', (error) => {
             updateStatus(`❌ Error: ${error.message || error}`, true);
-            resetUI();
         });
         
         socket.on('broadcaster-disconnected', () => {
             updateStatus('📡 Transmisor desconectado', true);
             if (elements.remoteVideo) elements.remoteVideo.srcObject = null;
             if (elements.remoteOverlay) elements.remoteOverlay.style.display = 'flex';
-            resetUI();
         });
         
         // Eventos WebRTC
@@ -149,32 +149,37 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     // ============================================
-    // WEBRTC HANDLERS (MEJORADOS)
+    // WEBRTC HANDLERS CON DIAGNÓSTICO
     // ============================================
     async function handleOffer(data) {
-        updateStatus('📥 Recibida oferta del broadcaster');
-        console.log('Oferta recibida:', data.offer);
+        webrtcLog('📥 OFERTA RECIBIDA del broadcaster');
+        webrtcLog(`   De: ${data.from}`);
+        updateStatus('📥 Recibiendo oferta...');
         
         try {
             // Crear peer connection si no existe
             if (!peerConnection) {
+                webrtcLog('🆕 Creando nueva PeerConnection');
                 peerConnection = new RTCPeerConnection(configuration);
                 
                 peerConnection.ontrack = (event) => {
-                    updateStatus('✅ Video recibido del broadcaster');
-                    console.log('Track recibido:', event.track.kind);
+                    webrtcLog('✅ TRACK RECIBIDO - VIDEO LLEGANDO');
+                    webrtcLog(`   Kind: ${event.track.kind}`);
+                    webrtcLog(`   Streams: ${event.streams.length}`);
                     
                     if (elements.remoteVideo) {
                         elements.remoteVideo.srcObject = event.streams[0];
                         if (elements.remoteOverlay) {
                             elements.remoteOverlay.style.display = 'none';
                         }
+                        updateStatus('✅ Video recibido');
+                        webrtcLog('✅ Video mostrado en elemento remoto');
                     }
                 };
                 
                 peerConnection.onicecandidate = (event) => {
                     if (event.candidate) {
-                        console.log('ICE candidate generado');
+                        webrtcLog(`🧊 ICE candidate generado: ${event.candidate.candidate.substring(0, 50)}...`);
                         socket.emit('ice-candidate', {
                             target: data.from,
                             candidate: event.candidate
@@ -183,62 +188,76 @@ document.addEventListener('DOMContentLoaded', function() {
                 };
                 
                 peerConnection.oniceconnectionstatechange = () => {
-                    console.log('ICE state:', peerConnection.iceConnectionState);
+                    webrtcLog(`🧊 ICE state: ${peerConnection.iceConnectionState}`);
                     if (peerConnection.iceConnectionState === 'connected') {
                         updateStatus('✅ Conexión establecida');
+                        webrtcLog('✅ CONEXIÓN WEBRTC ESTABLECIDA');
                     }
                     if (peerConnection.iceConnectionState === 'failed') {
                         updateStatus('❌ Error de conexión', true);
+                        webrtcLog('❌ ICE FAILED - No se puede conectar');
                     }
+                    if (peerConnection.iceConnectionState === 'disconnected') {
+                        webrtcLog('⚠️ ICE disconnected');
+                    }
+                };
+                
+                peerConnection.onconnectionstatechange = () => {
+                    webrtcLog(`🔌 Connection state: ${peerConnection.connectionState}`);
+                };
+                
+                peerConnection.onsignalingstatechange = () => {
+                    webrtcLog(`🚦 Signaling state: ${peerConnection.signalingState}`);
                 };
             }
             
-            // Establecer la oferta como descripción remota
+            webrtcLog('📥 Estableciendo descripción remota...');
             await peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
-            console.log('✅ Remote description set');
+            webrtcLog('✅ Remote description SET');
             
-            // Crear respuesta
+            webrtcLog('📤 Creando respuesta...');
             const answer = await peerConnection.createAnswer();
-            console.log('✅ Answer created');
+            webrtcLog('✅ Answer creada');
             
-            // Establecer como descripción local
+            webrtcLog('📤 Estableciendo descripción local...');
             await peerConnection.setLocalDescription(answer);
-            console.log('✅ Local description set');
+            webrtcLog('✅ Local description SET');
             
-            // Enviar respuesta al broadcaster
+            webrtcLog('📤 Enviando respuesta al broadcaster...');
             socket.emit('answer', {
                 target: data.from,
                 answer: answer
             });
-            updateStatus('📤 Respuesta enviada');
+            webrtcLog('✅ Respuesta enviada');
             
         } catch (err) {
-            updateStatus(`❌ Error en oferta: ${err.message}`, true);
-            console.error('Error en handleOffer:', err);
+            webrtcLog(`❌ ERROR CRÍTICO: ${err.message}`);
+            updateStatus(`❌ Error: ${err.message}`, true);
         }
     }
     
     async function handleAnswer(data) {
-        console.log('Respuesta recibida:', data.answer);
+        webrtcLog('📥 RESPUESTA RECIBIDA del broadcaster');
         try {
             if (peerConnection) {
+                webrtcLog('📥 Estableciendo descripción remota (answer)...');
                 await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
-                console.log('✅ Remote description set (answer)');
+                webrtcLog('✅ Remote description SET (answer)');
             }
         } catch (err) {
-            console.error('Error en handleAnswer:', err);
+            webrtcLog(`❌ Error en answer: ${err.message}`);
         }
     }
     
     async function handleIceCandidate(data) {
-        console.log('ICE candidate recibido');
+        webrtcLog(`🧊 ICE candidate recibido de ${data.from}`);
         try {
             if (peerConnection) {
                 await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
-                console.log('✅ ICE candidate agregado');
+                webrtcLog('✅ ICE candidate agregado');
             }
         } catch (err) {
-            console.error('Error en handleIceCandidate:', err);
+            webrtcLog(`❌ Error agregando ICE: ${err.message}`);
         }
     }
     
@@ -265,9 +284,10 @@ document.addEventListener('DOMContentLoaded', function() {
             elements.startBtn.disabled = true;
         }
         if (elements.remoteOverlay) {
-            elements.remoteOverlay.innerHTML = '<span>⏳ Conectando al transmisor...</span>';
+            elements.remoteOverlay.innerHTML = '<span>⏳ Conectando...</span>';
         }
         
+        webrtcLog(`👋 Uniéndose a sala: ${roomName}`);
         updateStatus(`👁️ Uniéndose a ${roomName}...`);
         socket.emit('viewer-join', roomName);
     }
@@ -283,10 +303,21 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         if (elements.remoteOverlay) {
             elements.remoteOverlay.style.display = 'flex';
-            elements.remoteOverlay.innerHTML = '<span>📺 Esperando transmisión...</span>';
+            elements.remoteOverlay.innerHTML = '<span>📺 Esperando...</span>';
         }
         
-        resetUI();
+        if (elements.joinBtn) {
+            elements.joinBtn.disabled = false;
+            elements.joinBtn.textContent = 'Unirse';
+        }
+        if (elements.leaveBtn) {
+            elements.leaveBtn.disabled = true;
+        }
+        if (elements.startBtn) {
+            elements.startBtn.disabled = false;
+        }
+        
+        currentRoom = null;
         updateStatus('👋 Desconectado');
     }
     
@@ -345,7 +376,6 @@ document.addEventListener('DOMContentLoaded', function() {
             
         } catch (err) {
             updateStatus(`❌ Error: ${err.message}`, true);
-            resetUI();
         }
     }
     
@@ -364,7 +394,12 @@ document.addEventListener('DOMContentLoaded', function() {
         if (elements.localVideo) elements.localVideo.srcObject = null;
         if (elements.localOverlay) elements.localOverlay.style.display = 'flex';
         
-        resetUI();
+        if (elements.startBtn) elements.startBtn.disabled = false;
+        if (elements.stopBtn) elements.stopBtn.disabled = true;
+        if (elements.joinBtn) elements.joinBtn.disabled = false;
+        
+        isBroadcaster = false;
+        currentRoom = null;
         updateStatus('⏹️ Transmisión detenida');
     }
     
@@ -394,4 +429,5 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     updateStatus('✅ App lista');
+    webrtcLog('✅ Diagnóstico WebRTC listo');
 });
