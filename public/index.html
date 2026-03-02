@@ -67,18 +67,214 @@
             opacity: 0.9;
         }
 
-        .device-info {
-            margin-top: 15px;
-            font-size: 1rem;
-            background: rgba(255, 255, 255, 0.2);
-            padding: 8px 20px;
-            border-radius: 30px;
-            display: inline-block;
+        /* ===== SELECTOR DE ROL ===== */
+        .role-selector {
+            max-width: 600px;
+            margin: 40px auto;
+            text-align: center;
         }
 
-        /* ===== MAIN ===== */
-        .main {
+        .role-buttons {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            margin: 30px 0;
+        }
+
+        .role-btn {
+            flex: 1;
+            max-width: 250px;
+            padding: 30px 20px;
+            border: none;
+            border-radius: 15px;
+            font-size: 1.5rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 15px;
+            color: white;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+
+        .role-btn:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 40px rgba(0,0,0,0.3);
+        }
+
+        .role-btn.admin {
+            background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+        }
+
+        .role-btn.viewer {
+            background: linear-gradient(135deg, #28a745 0%, #218838 100%);
+        }
+
+        .role-icon {
+            font-size: 3rem;
+        }
+
+        .role-description {
+            font-size: 1rem;
+            opacity: 0.9;
+            margin-top: 10px;
+        }
+
+        /* ===== MODAL DE LOGIN ===== */
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.8);
+            z-index: 20000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(5px);
+        }
+
+        .modal-content {
+            background: white;
+            padding: 40px;
+            border-radius: 20px;
+            max-width: 450px;
+            width: 90%;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from { transform: translateY(-50px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+        .modal-content h2 {
+            margin-bottom: 10px;
+            color: var(--dark);
+            font-size: 1.8rem;
+        }
+
+        .modal-content p {
+            color: var(--gray);
+            margin-bottom: 25px;
+        }
+
+        .modal-input {
+            width: 100%;
+            padding: 15px;
+            margin: 10px 0;
+            border: 2px solid #e9ecef;
+            border-radius: 10px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+
+        .modal-input:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+
+        .modal-buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 25px;
+        }
+
+        .btn {
+            padding: 15px 25px;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            flex: 1;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: var(--gray);
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #5a6268;
+            transform: translateY(-2px);
+        }
+
+        .btn-danger {
+            background: var(--danger);
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #c82333;
+        }
+
+        .error-message {
+            color: #dc3545;
+            margin-top: 15px;
+            padding: 10px;
+            background: #f8d7da;
+            border-radius: 8px;
+            text-align: center;
+            display: none;
+        }
+
+        /* ===== CONTENIDO PRINCIPAL (oculto hasta elegir rol) ===== */
+        .main-content {
+            display: none;
             padding: 30px;
+        }
+
+        .session-info {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: white;
+            padding: 10px 20px;
+            border-radius: 30px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            z-index: 15000;
+        }
+
+        .badge {
+            background: var(--primary);
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
+        .btn-small {
+            padding: 5px 15px;
+            background: #dc3545;
+            color: white;
+            border: none;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        .btn-small:hover {
+            background: #c82333;
         }
 
         /* ===== PANELES DE CONTROL ===== */
@@ -93,8 +289,8 @@
             background: white;
             border-radius: 15px;
             padding: 20px;
-            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05);
-            border: 1px solid rgba(0, 0, 0, 0.05);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.05);
+            border: 1px solid rgba(0,0,0,0.05);
         }
 
         .panel h2 {
@@ -106,7 +302,6 @@
             gap: 8px;
         }
 
-        /* ===== INPUT GROUP ===== */
         .input-group {
             display: flex;
             flex-wrap: wrap;
@@ -120,17 +315,9 @@
             border: 2px solid #e9ecef;
             border-radius: 10px;
             font-size: 16px;
-            transition: all 0.3s;
         }
 
-        .input-group input:focus {
-            outline: none;
-            border-color: var(--primary);
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-        }
-
-        /* ===== BOTONES ===== */
-        .btn {
+        .btn-action {
             padding: 12px 20px;
             border: none;
             border-radius: 10px;
@@ -138,71 +325,32 @@
             font-weight: 600;
             cursor: pointer;
             transition: all 0.3s;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
             min-width: 120px;
         }
 
-        .btn:active {
-            transform: scale(0.98);
-        }
-
-        .btn:disabled {
+        .btn-action:disabled {
             opacity: 0.5;
             cursor: not-allowed;
-            pointer-events: none;
         }
 
-        .btn-primary {
+        .btn-start {
             background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
             color: white;
         }
 
-        .btn-primary:hover:not(:disabled) {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
-        }
-
-        .btn-success {
-            background: var(--success);
-            color: white;
-        }
-
-        .btn-success:hover:not(:disabled) {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 20px rgba(40, 167, 69, 0.4);
-        }
-
-        .btn-danger {
+        .btn-stop {
             background: var(--danger);
             color: white;
         }
 
-        .btn-danger:hover:not(:disabled) {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 20px rgba(220, 53, 69, 0.4);
+        .btn-join {
+            background: var(--success);
+            color: white;
         }
 
-        .btn-secondary {
+        .btn-leave {
             background: var(--gray);
             color: white;
-        }
-
-        .btn-secondary:hover:not(:disabled) {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 20px rgba(108, 117, 125, 0.4);
-        }
-
-        .btn-info {
-            background: var(--info);
-            color: white;
-        }
-
-        .btn-info:hover:not(:disabled) {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 20px rgba(23, 162, 184, 0.4);
         }
 
         /* ===== ÁREA DE VIDEO ===== */
@@ -217,7 +365,7 @@
             background: white;
             border-radius: 15px;
             overflow: hidden;
-            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
             border: 1px solid #e9ecef;
         }
 
@@ -235,15 +383,6 @@
             flex: 1;
             font-size: 1.1rem;
             color: var(--dark);
-        }
-
-        .badge {
-            background: var(--primary);
-            color: white;
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 0.8rem;
-            font-weight: 600;
         }
 
         .viewer-count {
@@ -276,19 +415,18 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            background: rgba(0, 0, 0, 0.7);
+            background: rgba(0,0,0,0.7);
             color: white;
             font-size: 1rem;
             text-align: center;
             padding: 20px;
         }
 
-        /* ===== BOTÓN DE PANTALLA COMPLETA ===== */
         .fullscreen-btn {
             position: absolute;
             bottom: 10px;
             right: 10px;
-            background: rgba(0, 0, 0, 0.6);
+            background: rgba(0,0,0,0.6);
             color: white;
             border: 2px solid white;
             border-radius: 5px;
@@ -300,99 +438,13 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            transition: all 0.3s ease;
+            transition: all 0.3s;
             opacity: 0.7;
         }
 
         .fullscreen-btn:hover {
-            background: rgba(0, 0, 0, 0.9);
             opacity: 1;
             transform: scale(1.1);
-        }
-
-        .fullscreen-video:-webkit-full-screen {
-            width: 100%;
-            height: 100%;
-        }
-
-        .fullscreen-video:fullscreen {
-            width: 100%;
-            height: 100%;
-            object-fit: contain;
-        }
-
-        /* ===== INDICADOR DE CALIDAD ===== */
-        .quality-indicator {
-            position: fixed;
-            bottom: 10px;
-            right: 10px;
-            background: rgba(0, 0, 0, 0.7);
-            color: #28a745;
-            padding: 5px 10px;
-            border-radius: 5px;
-            font-size: 12px;
-            z-index: 10001;
-        }
-
-        /* ===== ESTADO ===== */
-        .status-section {
-            background: #f8f9fa;
-            border-radius: 10px;
-            padding: 15px;
-            margin-bottom: 20px;
-            border: 1px solid #e9ecef;
-        }
-
-        .status {
-            font-size: 1rem;
-            color: var(--dark);
-            margin-bottom: 10px;
-            padding: 10px;
-            background: white;
-            border-radius: 8px;
-            border-left: 4px solid var(--primary);
-        }
-
-        /* ===== DEBUG PANEL ===== */
-        .debug-panel {
-            background: white;
-            border-radius: 10px;
-            border: 1px solid #e9ecef;
-            overflow: hidden;
-        }
-
-        .debug-header {
-            padding: 15px;
-            background: #f8f9fa;
-            cursor: pointer;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            font-weight: 600;
-            color: var(--dark);
-        }
-
-        .debug-content {
-            max-height: 200px;
-            overflow-y: auto;
-            padding: 15px;
-            background: #1a1a1a;
-            color: #00ff00;
-            font-family: monospace;
-            font-size: 0.8rem;
-        }
-
-        .debug-content.collapsed {
-            display: none;
-        }
-
-        .log-container {
-            white-space: pre-wrap;
-            word-wrap: break-word;
-        }
-
-        .toggle-icon {
-            font-size: 1.2rem;
         }
 
         /* ===== FOOTER ===== */
@@ -407,18 +459,26 @@
 
         /* ===== RESPONSIVE ===== */
         @media (max-width: 768px) {
-            .main { padding: 15px; }
-            .control-panel { grid-template-columns: 1fr; }
-            .video-section { grid-template-columns: 1fr; }
-            .btn { width: 100%; }
-            .input-group { flex-direction: column; }
-            .input-group input { width: 100%; }
-        }
-
-        @media (max-width: 480px) {
-            .header { padding: 20px; }
-            .panel h2 { font-size: 1.1rem; }
-            .badge, .viewer-count { font-size: 0.7rem; padding: 3px 8px; }
+            .role-buttons {
+                flex-direction: column;
+                align-items: center;
+            }
+            
+            .role-btn {
+                max-width: 100%;
+            }
+            
+            .main-content {
+                padding: 15px;
+            }
+            
+            .control-panel {
+                grid-template-columns: 1fr;
+            }
+            
+            .video-section {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 </head>
@@ -426,40 +486,77 @@
     <div class="container">
         <!-- HEADER -->
         <header class="header">
-            <h1>📺 ScreenShare Pro</h1>
-            <p>Transmisión en alta calidad - 51 Mbps optimizado</p>
-            <div class="device-info" id="deviceInfo">Detectando dispositivo...</div>
+            <h1>📺 ScreenShare</h1>
+            <p>Comparte tu pantalla en vivo desde cualquier dispositivo</p>
         </header>
 
-        <!-- MAIN CONTENT -->
-        <main class="main">
+        <!-- SELECTOR DE ROL (visible inicialmente) -->
+        <div id="roleSelector" class="role-selector">
+            <h2>¿Qué quieres hacer?</h2>
+            <div class="role-buttons">
+                <button class="role-btn admin" onclick="selectRole('admin')">
+                    <span class="role-icon">🎥</span>
+                    <span>Soy Administrador</span>
+                    <span class="role-description">Quiero transmitir mi pantalla</span>
+                </button>
+                <button class="role-btn viewer" onclick="selectRole('viewer')">
+                    <span class="role-icon">👁️</span>
+                    <span>Soy Espectador</span>
+                    <span class="role-description">Solo quiero ver transmisiones</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- MODAL DE LOGIN (para admin) -->
+        <div id="loginModal" class="modal" style="display: none;">
+            <div class="modal-content">
+                <h2>🔐 Acceso de Administrador</h2>
+                <p>Ingresa tus credenciales para iniciar transmisión</p>
+                <input type="text" id="loginUsername" class="modal-input" placeholder="Usuario" autocomplete="off">
+                <input type="password" id="loginPassword" class="modal-input" placeholder="Contraseña">
+                <div class="modal-buttons">
+                    <button class="btn btn-primary" onclick="login()">Ingresar</button>
+                    <button class="btn btn-secondary" onclick="cancelLogin()">Cancelar</button>
+                </div>
+                <div id="loginError" class="error-message"></div>
+            </div>
+        </div>
+
+        <!-- CONTENIDO PRINCIPAL (oculto hasta elegir rol) -->
+        <div id="mainContent" class="main-content">
+            <!-- INFO DE SESIÓN (solo visible para admin) -->
+            <div id="sessionInfo" class="session-info" style="display: none;">
+                <span class="badge">👤 Administrador</span>
+                <button class="btn-small" onclick="logout()">Salir</button>
+            </div>
+
             <!-- PANELES DE CONTROL -->
             <div class="control-panel">
-                <!-- PANEL TRANSMISOR -->
-                <div class="panel">
-                    <h2>🎥 Quiero transmitir</h2>
+                <!-- PANEL TRANSMISOR (visible solo para admin) -->
+                <div id="broadcastPanel" class="panel" style="display: none;">
+                    <h2>🎥 Transmitir pantalla</h2>
                     <div class="input-group">
                         <input type="text" id="roomId" placeholder="Nombre de la sala" value="sala1">
-                        <button class="btn btn-primary" id="startBtn">Iniciar Transmisión</button>
-                        <button class="btn btn-danger" id="stopBtn" disabled>Detener</button>
+                        <button class="btn-action btn-start" id="startBtn" disabled>Iniciar</button>
+                        <button class="btn-action btn-stop" id="stopBtn" disabled>Detener</button>
                     </div>
                 </div>
 
-                <!-- PANEL ESPECTADOR -->
-                <div class="panel">
-                    <h2>👁️ Quiero ver</h2>
+                <!-- PANEL ESPECTADOR (visible para todos) -->
+                <div id="viewerPanel" class="panel">
+                    <h2>👁️ Ver transmisión</h2>
                     <div class="input-group">
                         <input type="text" id="viewRoomId" placeholder="Nombre de la sala" value="sala1">
-                        <button class="btn btn-success" id="joinBtn">Unirse</button>
-                        <button class="btn btn-secondary" id="leaveBtn" disabled>Salir</button>
+                        <button class="btn-action btn-join" id="joinBtn">Unirse</button>
+                        <button class="btn-action btn-leave" id="leaveBtn" disabled>Salir</button>
                     </div>
                 </div>
             </div>
 
             <!-- ÁREA DE VIDEO -->
             <div class="video-section">
-                <!-- VIDEO LOCAL -->
-                <div class="video-card">
+                <!-- VIDEO LOCAL (solo visible para admin) -->
+                <div id="localVideoCard" class="video-card" style="display: none;">
                     <div class="video-header">
                         <h3>📤 Tu transmisión</h3>
                         <span class="badge" id="localDeviceBadge">PC</span>
@@ -472,7 +569,7 @@
                     </div>
                 </div>
 
-                <!-- VIDEO REMOTO CON BOTÓN DE PANTALLA COMPLETA -->
+                <!-- VIDEO REMOTO -->
                 <div class="video-card">
                     <div class="video-header">
                         <h3>📥 Transmisión remota</h3>
@@ -481,39 +578,21 @@
                     </div>
                     <div class="video-wrapper">
                         <video id="remoteVideo" autoplay playsinline></video>
-                        <button id="fullscreenBtn" class="fullscreen-btn" title="Pantalla completa">⛶</button>
+                        <button class="fullscreen-btn" onclick="toggleFullscreen()">⛶</button>
                         <div class="overlay" id="remoteOverlay">
                             <span>Esperando transmisión...</span>
                         </div>
                     </div>
                 </div>
             </div>
-
-            <!-- ESTADO DE CONEXIÓN -->
-            <div class="status-section">
-                <div class="status" id="statusText">Conectando al servidor...</div>
-            </div>
-
-            <!-- PANEL DE DEBUG -->
-            <div class="debug-panel">
-                <div class="debug-header" onclick="toggleDebug()">
-                    <span>🔧 Información técnica</span>
-                    <span class="toggle-icon">▼</span>
-                </div>
-                <div class="debug-content" id="debugContent">
-                    <div id="connectionLog" class="log-container"></div>
-                </div>
-            </div>
-        </main>
+        </div>
 
         <!-- FOOTER -->
         <footer class="footer">
-            <p>ScreenShare Pro - Transmisión en vivo WebRTC</p>
-            <p class="small">Optimizado para 51 Mbps - Compatible con PC, Móvil, Tablet y TV</p>
+            <p>ScreenShare - Transmisión en vivo</p>
         </footer>
     </div>
 
-    <!-- SCRIPTS -->
     <script src="/socket.io/socket.io.js"></script>
     <script src="client.js"></script>
 </body>

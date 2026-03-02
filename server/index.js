@@ -3,6 +3,8 @@ const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
 const cors = require('cors');
+const session = require('express-session');
+const cookieParser = require('cookie-parser');
 
 const app = express();
 const server = http.createServer(app);
@@ -10,19 +12,59 @@ const io = new Server(server, {
   cors: {
     origin: "*",
     methods: ["GET", "POST"]
-  },
-  pingTimeout: 120000,
-  pingInterval: 30000
+  }
 });
 
 app.use(cors());
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
+app.use(session({
+  secret: 'tu-secreto-super-seguro-2024',
+  resave: false,
+  saveUninitialized: false,
+  cookie: { 
+    secure: false, // true en producción con HTTPS
+    maxAge: 24 * 60 * 60 * 1000 // 24 horas
+  }
+}));
+
 app.use(express.static(path.join(__dirname, '../public')));
 
+// Credenciales del administrador (CÁMBIALAS)
+const ADMIN = {
+  username: 'admin',
+  password: 'admin123'
+};
+
+// Rutas de autenticación
+app.post('/api/auth/login', (req, res) => {
+  const { username, password } = req.body;
+  
+  if (username === ADMIN.username && password === ADMIN.password) {
+    req.session.authenticated = true;
+    req.session.username = username;
+    res.json({ success: true });
+  } else {
+    res.status(401).json({ success: false, error: 'Credenciales inválidas' });
+  }
+});
+
+app.post('/api/auth/logout', (req, res) => {
+  req.session.destroy();
+  res.json({ success: true });
+});
+
+app.get('/api/auth/check', (req, res) => {
+  res.json({ authenticated: req.session.authenticated || false });
+});
+
+// Ruta principal
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, '../public/index.html'));
 });
 
+// Salas
 const rooms = new Map();
 
 io.on('connection', (socket) => {
@@ -59,7 +101,7 @@ io.on('connection', (socket) => {
         total: room.viewers.size
       });
       
-      console.log(`👁️ Viewer ${socket.id} unido a ${roomId} (total: ${room.viewers.size})`);
+      console.log(`👁️ Viewer ${socket.id} unido a ${roomId}`);
     } else {
       socket.emit('room-error', 'Sala no encontrada');
     }
@@ -123,10 +165,9 @@ io.on('connection', (socket) => {
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`
-  🚀 SERVIDOR PRO - OPTIMIZADO 51 Mbps
-  ═══════════════════════════════════
+  🚀 SERVIDOR INICIADO
+  ════════════════════
   📡 Puerto: ${PORT}
-  ✅ Calidad 720p 30fps habilitada
-  ✅ Soporte múltiples viewers
+  🔐 Sistema de roles activado
   `);
 });
