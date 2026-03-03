@@ -1,5 +1,5 @@
 // ============================================
-// CLIENTE CON SELECCIÓN DE ROL - VERSIÓN CORREGIDA
+// CLIENTE CON SELECCIÓN DE ROL - VERSIÓN FINAL CON TURN
 // ============================================
 
 console.log('🚀 Cliente iniciando...');
@@ -87,17 +87,41 @@ let selectedRole = null;
 let isAuthenticated = false;
 
 // ============================================
-// CONFIGURACIÓN STUN MEJORADA
+// CONFIGURACIÓN STUN/TURN MEJORADA
 // ============================================
 const configuration = {
     iceServers: [
+        // Servidores STUN (para conexión directa)
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
         { urls: 'stun:stun2.l.google.com:19302' },
         { urls: 'stun:stun3.l.google.com:19302' },
-        { urls: 'stun:stun4.l.google.com:19302' }
+        { urls: 'stun:stun4.l.google.com:19302' },
+        { urls: 'stun:stun.ekiga.net' },
+        { urls: 'stun:stun.ideasip.com' },
+        { urls: 'stun:stun.schlund.de' },
+        
+        // Servidores TURN gratuitos (para cuando no hay conexión directa)
+        {
+            urls: 'turn:openrelay.metered.ca:80',
+            username: 'openrelayproject',
+            credential: 'openrelayproject'
+        },
+        {
+            urls: 'turn:openrelay.metered.ca:443',
+            username: 'openrelayproject',
+            credential: 'openrelayproject'
+        },
+        {
+            urls: 'turn:openrelay.metered.ca:5349',
+            username: 'openrelayproject',
+            credential: 'openrelayproject'
+        }
     ],
-    iceCandidatePoolSize: 10
+    iceCandidatePoolSize: 10,
+    iceTransportPolicy: 'all',
+    bundlePolicy: 'max-bundle',
+    rtcpMuxPolicy: 'require'
 };
 
 // ============================================
@@ -482,10 +506,15 @@ function connectToServer() {
             log(`➕ Track ${track.kind} añadido para ${viewerId}`, 'INFO');
         });
         
-        // Manejar ICE candidates
+        // Manejar ICE candidates con tipo
         pc.onicecandidate = (event) => {
             if (event.candidate) {
-                log(`🧊 Enviando ICE candidate a ${viewerId}`, 'INFO');
+                // Determinar tipo de candidato
+                const candidateType = event.candidate.candidate.includes('host') ? '🏠 local' :
+                                     event.candidate.candidate.includes('srflx') ? '🌐 STUN' :
+                                     event.candidate.candidate.includes('relay') ? '🔄 TURN' : '❓ desconocido';
+                
+                log(`🧊 [${candidateType}] Enviando ICE candidate a ${viewerId}`, 'INFO');
                 socket.emit('ice-candidate', {
                     target: viewerId,
                     candidate: event.candidate
@@ -497,6 +526,9 @@ function connectToServer() {
             log(`🧊 ICE state (${viewerId}): ${pc.iceConnectionState}`, 'INFO');
             if (pc.iceConnectionState === 'connected') {
                 log(`✅ Viewer ${viewerId} conectado vía ICE`, 'SUCCESS');
+            }
+            if (pc.iceConnectionState === 'failed') {
+                log(`❌ ICE failed para viewer ${viewerId}`, 'ERROR');
             }
         };
         
@@ -590,7 +622,12 @@ async function handleOffer(data) {
             
             peerConnectionViewer.onicecandidate = (event) => {
                 if (event.candidate) {
-                    log('🧊 Enviando ICE candidate al broadcaster', 'INFO');
+                    // Determinar tipo de candidato
+                    const candidateType = event.candidate.candidate.includes('host') ? '🏠 local' :
+                                         event.candidate.candidate.includes('srflx') ? '🌐 STUN' :
+                                         event.candidate.candidate.includes('relay') ? '🔄 TURN' : '❓ desconocido';
+                    
+                    log(`🧊 [${candidateType}] Enviando ICE candidate al broadcaster`, 'INFO');
                     socket.emit('ice-candidate', {
                         target: data.from,
                         candidate: event.candidate
@@ -658,12 +695,25 @@ async function handleIceCandidate(data) {
         if (selectedRole === 'viewer' && peerConnectionViewer) {
             await peerConnectionViewer.addIceCandidate(new RTCIceCandidate(data.candidate));
             log('✅ ICE candidate agregado al viewer', 'SUCCESS');
+            
+            // Verificar estado después de agregar
+            setTimeout(() => {
+                if (peerConnectionViewer) {
+                    log(`🧊 Estado ICE actual: ${peerConnectionViewer.iceConnectionState}`, 'INFO');
+                }
+            }, 500);
+            
         } else if (selectedRole === 'admin') {
-            // Para broadcaster, buscar la conexión del viewer
             const pc = peerConnections.get(data.from);
             if (pc) {
                 await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
                 log(`✅ ICE agregado para viewer ${data.from}`, 'SUCCESS');
+                
+                setTimeout(() => {
+                    if (pc) {
+                        log(`🧊 Estado ICE viewer ${data.from}: ${pc.iceConnectionState}`, 'INFO');
+                    }
+                }, 500);
             } else {
                 log(`⚠️ No se encontró conexión para viewer ${data.from}`, 'WARN');
             }
