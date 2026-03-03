@@ -1,5 +1,5 @@
 // ============================================
-// CLIENTE CON SELECCIÓN DE ROL - CON TURN DE CLOUDFLARE
+// CLIENTE CON SELECCIÓN DE ROL - VERSIÓN CORREGIDA
 // ============================================
 
 console.log('🚀 Cliente iniciando...');
@@ -103,11 +103,10 @@ let selectedRole = null;
 let isAuthenticated = false;
 
 // ============================================
-// CONFIGURACIÓN CON TURN DE CLOUDFLARE (SIN AUTENTICACIÓN)
+// CONFIGURACIÓN SOLO STUN (SIN TURN PARA EVITAR ERRORES)
 // ============================================
 const configuration = {
     iceServers: [
-        // Servidores STUN
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
         { urls: 'stun:stun2.l.google.com:19302' },
@@ -115,16 +114,10 @@ const configuration = {
         { urls: 'stun:stun4.l.google.com:19302' },
         { urls: 'stun:stun.ekiga.net' },
         { urls: 'stun:stun.ideasip.com' },
-        
-        // TURN de Cloudflare (gratis, sin autenticación)
-        { urls: 'turn:turn.cloudflare.com:3478?transport=udp' },
-        { urls: 'turn:turn.cloudflare.com:3478?transport=tcp' },
-        { urls: 'turns:turn.cloudflare.com:5349?transport=tcp' }
+        { urls: 'stun:stun.schlund.de' }
     ],
     iceCandidatePoolSize: 10,
-    iceTransportPolicy: 'all',
-    bundlePolicy: 'max-bundle',
-    rtcpMuxPolicy: 'require'
+    iceTransportPolicy: 'all'
 };
 
 // ============================================
@@ -145,11 +138,9 @@ window.selectRole = function(role) {
     selectedRole = role;
     
     if (role === 'admin') {
-        // Mostrar modal de login
         elements.loginModal.style.display = 'flex';
         setTimeout(() => elements.loginUsername.focus(), 100);
     } else {
-        // Viewer: mostrar contenido directamente
         elements.roleSelector.style.display = 'none';
         elements.mainContent.style.display = 'block';
         initViewerMode();
@@ -193,7 +184,6 @@ window.login = async function() {
             elements.roleSelector.style.display = 'none';
             elements.mainContent.style.display = 'block';
             
-            // Mostrar panel de admin
             elements.broadcastPanel.style.display = 'block';
             elements.localVideoCard.style.display = 'block';
             elements.sessionInfo.style.display = 'flex';
@@ -222,18 +212,15 @@ window.logout = async function() {
         await fetch('/api/auth/logout', { method: 'POST' });
         isAuthenticated = false;
         
-        // Detener transmisión si está activa
         if (isBroadcaster) {
             stopBroadcast();
         }
         
-        // Cerrar todas las conexiones de viewers
         for (const [id, pc] of peerConnections.entries()) {
             pc.close();
         }
         peerConnections.clear();
         
-        // Volver al selector de rol
         elements.sessionInfo.style.display = 'none';
         elements.broadcastPanel.style.display = 'none';
         elements.localVideoCard.style.display = 'none';
@@ -243,7 +230,6 @@ window.logout = async function() {
         elements.loginUsername.value = '';
         elements.loginPassword.value = '';
         
-        // Desconectar socket
         if (socket) {
             socket.disconnect();
             socket = null;
@@ -292,7 +278,6 @@ async function startBroadcast() {
         socket.emit('broadcaster-join', roomName);
         log(`📡 Transmitiendo en ${roomName}`, 'BROADCASTER');
         
-        // Manejar cierre de captura
         localStream.getVideoTracks()[0].onended = () => {
             log('⏹️ Captura cerrada por el usuario', 'WARN');
             stopBroadcast();
@@ -308,7 +293,6 @@ async function startBroadcast() {
 function stopBroadcast() {
     log('⏹️ Deteniendo transmisión...', 'BROADCASTER');
     
-    // Cerrar todas las conexiones de viewers
     for (const [id, pc] of peerConnections.entries()) {
         pc.close();
         log(`🧹 Conexión con viewer ${id} cerrada`, 'INFO');
@@ -413,13 +397,11 @@ function connectToServer() {
         log('✅ Conectado al servidor', 'SUCCESS');
         updateStatus('Conectado');
         
-        // Si estábamos en una sala como viewer, reintentar unirse
         if (selectedRole === 'viewer' && currentRoom) {
             log(`🔄 Reintentando unirse a ${currentRoom}...`, 'INFO');
             socket.emit('viewer-join', currentRoom);
         }
         
-        // Si es broadcaster, anunciarse
         if (selectedRole === 'admin' && isBroadcaster && currentRoom) {
             log(`🔄 Reanunciando como broadcaster en ${currentRoom}...`, 'INFO');
             socket.emit('broadcaster-join', currentRoom);
@@ -486,7 +468,7 @@ function connectToServer() {
     });
     
     // ============================================
-    // EVENTO PARA BROADCASTER
+    // EVENTO PARA BROADCASTER - CORREGIDO CON MÁS LOGS
     // ============================================
     socket.on('viewer-joined', (data) => {
         const viewerId = data.viewerId;
@@ -504,68 +486,71 @@ function connectToServer() {
         }
         
         log(`🆕 Creando PeerConnection para viewer ${viewerId}`, 'INFO');
-        const pc = new RTCPeerConnection(configuration);
         
-        // Añadir tracks locales
-        localStream.getTracks().forEach(track => {
-            pc.addTrack(track, localStream);
-            log(`➕ Track ${track.kind} añadido para ${viewerId}`, 'INFO');
-        });
-        
-        // Manejar ICE candidates con tipo
-        pc.onicecandidate = (event) => {
-            if (event.candidate) {
-                // Determinar tipo de candidato
-                const candidateType = event.candidate.candidate.includes('host') ? '🏠 local' :
-                                     event.candidate.candidate.includes('srflx') ? '🌐 STUN' :
-                                     event.candidate.candidate.includes('relay') ? '🔄 TURN' : '❓ desconocido';
-                
-                log(`🧊 [${candidateType}] Enviando ICE candidate a ${viewerId}`, 'INFO');
-                socket.emit('ice-candidate', {
-                    target: viewerId,
-                    candidate: event.candidate
-                });
-            }
-        };
-        
-        pc.oniceconnectionstatechange = () => {
-            log(`🧊 ICE state (${viewerId}): ${pc.iceConnectionState}`, 'INFO');
-            if (pc.iceConnectionState === 'connected') {
-                log(`✅ Viewer ${viewerId} conectado vía ICE`, 'SUCCESS');
-            }
-            if (pc.iceConnectionState === 'failed') {
-                log(`❌ ICE failed para viewer ${viewerId}`, 'ERROR');
-            }
-        };
-        
-        // Guardar en el Map
-        peerConnections.set(viewerId, pc);
-        
-        // Crear oferta para este viewer
-        log(`📤 Creando oferta para viewer ${viewerId}...`, 'INFO');
-        
-        pc.createOffer()
-            .then(offer => {
-                log(`✅ Oferta creada para ${viewerId}`, 'SUCCESS');
-                return pc.setLocalDescription(offer);
-            })
-            .then(() => {
-                log(`📤 Enviando oferta a viewer ${viewerId}...`, 'INFO');
-                
-                socket.emit('offer', {
-                    target: viewerId,
-                    offer: pc.localDescription
-                });
-                
-                log(`✅ Oferta enviada a ${viewerId}`, 'SUCCESS');
-            })
-            .catch(err => {
-                log(`❌ Error creando oferta para ${viewerId}: ${err.message}`, 'ERROR');
-                
-                // Limpiar si hay error
-                peerConnections.delete(viewerId);
-                pc.close();
+        try {
+            const pc = new RTCPeerConnection(configuration);
+            
+            // Añadir tracks locales
+            localStream.getTracks().forEach(track => {
+                pc.addTrack(track, localStream);
+                log(`➕ Track ${track.kind} añadido para ${viewerId}`, 'INFO');
             });
+            
+            // Manejar ICE candidates
+            pc.onicecandidate = (event) => {
+                if (event.candidate) {
+                    log(`🧊 Enviando ICE candidate a ${viewerId}`, 'INFO');
+                    socket.emit('ice-candidate', {
+                        target: viewerId,
+                        candidate: event.candidate
+                    });
+                }
+            };
+            
+            pc.oniceconnectionstatechange = () => {
+                log(`🧊 ICE state (${viewerId}): ${pc.iceConnectionState}`, 'INFO');
+                if (pc.iceConnectionState === 'connected') {
+                    log(`✅ Viewer ${viewerId} conectado vía ICE`, 'SUCCESS');
+                }
+                if (pc.iceConnectionState === 'failed') {
+                    log(`❌ ICE failed para viewer ${viewerId}`, 'ERROR');
+                }
+            };
+            
+            // Guardar en el Map
+            peerConnections.set(viewerId, pc);
+            
+            // Crear oferta para este viewer - CON MÁS LOGS
+            log(`📤 Iniciando createOffer() para ${viewerId}...`, 'INFO');
+            
+            pc.createOffer()
+                .then(offer => {
+                    log(`✅ createOffer() exitoso para ${viewerId}`, 'SUCCESS');
+                    log(`📄 Offer tipo: ${offer.type}, SDP length: ${offer.sdp.length}`, 'INFO');
+                    return pc.setLocalDescription(offer);
+                })
+                .then(() => {
+                    log(`✅ setLocalDescription() exitoso para ${viewerId}`, 'SUCCESS');
+                    log(`📤 Enviando oferta a ${viewerId}...`, 'INFO');
+                    
+                    socket.emit('offer', {
+                        target: viewerId,
+                        offer: pc.localDescription
+                    });
+                    
+                    log(`✅ Oferta enviada a ${viewerId}`, 'SUCCESS');
+                })
+                .catch(err => {
+                    log(`❌ ERROR en createOffer/setLocalDescription para ${viewerId}: ${err.message}`, 'ERROR');
+                    console.error('Error detallado:', err);
+                    
+                    peerConnections.delete(viewerId);
+                    pc.close();
+                });
+                
+        } catch (err) {
+            log(`❌ ERROR al crear PeerConnection para ${viewerId}: ${err.message}`, 'ERROR');
+        }
     });
     
     socket.on('viewer-left', (data) => {
@@ -601,27 +586,22 @@ async function handleOffer(data) {
     }
     
     try {
-        // Si no hay peer connection, crearla (incluso si tardó)
         if (!peerConnectionViewer) {
             log('🆕 Creando nueva PeerConnection como viewer', 'INFO');
             peerConnectionViewer = new RTCPeerConnection(configuration);
             
             peerConnectionViewer.ontrack = (event) => {
                 log('🎥 TRACK DE VIDEO RECIBIDO 🎥', 'SUCCESS');
-                log(`   Kind: ${event.track.kind}`, 'INFO');
-                log(`   Streams: ${event.streams.length}`, 'INFO');
                 
                 if (elements.remoteVideo) {
                     elements.remoteVideo.srcObject = event.streams[0];
                     
-                    // Forzar reproducción con manejo de errores
                     const playPromise = elements.remoteVideo.play();
                     if (playPromise !== undefined) {
                         playPromise
                             .then(() => log('✅ Video reproduciéndose', 'SUCCESS'))
                             .catch(e => {
                                 log(`⚠️ Error al reproducir: ${e.message}`, 'WARN');
-                                // En PC a veces necesita interacción del usuario
                                 if (device.isPC) {
                                     elements.remoteOverlay.innerHTML = '<span>👉 Haz clic en el video para reproducir</span>';
                                     elements.remoteOverlay.style.display = 'flex';
@@ -634,19 +614,12 @@ async function handleOffer(data) {
                     }
                     
                     updateStatus('✅ Video recibido');
-                } else {
-                    log('❌ Elemento remoteVideo no encontrado', 'ERROR');
                 }
             };
             
             peerConnectionViewer.onicecandidate = (event) => {
                 if (event.candidate) {
-                    // Determinar tipo de candidato
-                    const candidateType = event.candidate.candidate.includes('host') ? '🏠 local' :
-                                         event.candidate.candidate.includes('srflx') ? '🌐 STUN' :
-                                         event.candidate.candidate.includes('relay') ? '🔄 TURN' : '❓ desconocido';
-                    
-                    log(`🧊 [${candidateType}] Enviando ICE candidate al broadcaster`, 'INFO');
+                    log(`🧊 Enviando ICE candidate al broadcaster`, 'INFO');
                     socket.emit('ice-candidate', {
                         target: data.from,
                         candidate: event.candidate
@@ -659,36 +632,21 @@ async function handleOffer(data) {
                 if (peerConnectionViewer.iceConnectionState === 'connected') {
                     updateStatus('✅ Conexión establecida');
                 }
-                if (peerConnectionViewer.iceConnectionState === 'failed') {
-                    log('❌ ICE failed - Problema de conectividad', 'ERROR');
-                    updateStatus('❌ Error de conexión');
-                }
-            };
-            
-            // También agregar listener para connectionstate
-            peerConnectionViewer.onconnectionstatechange = () => {
-                log(`🔌 Connection state: ${peerConnectionViewer.connectionState}`, 'INFO');
             };
         }
         
-        log('📥 Estableciendo descripción remota...', 'INFO');
         await peerConnectionViewer.setRemoteDescription(new RTCSessionDescription(data.offer));
         log('✅ Remote description set', 'SUCCESS');
         
-        log('📤 Creando respuesta...', 'INFO');
         const answer = await peerConnectionViewer.createAnswer();
+        await peerConnectionViewer.setLocalDescription(answer);
         log('✅ Answer creada', 'SUCCESS');
         
-        log('📤 Estableciendo descripción local...', 'INFO');
-        await peerConnectionViewer.setLocalDescription(answer);
-        log('✅ Local description set', 'SUCCESS');
-        
-        log('📤 Enviando respuesta al broadcaster...', 'INFO');
         socket.emit('answer', { 
             target: data.from, 
             answer: answer 
         });
-        log('✅ Respuesta enviada', 'SUCCESS');
+        log('📤 Respuesta enviada', 'SUCCESS');
         
     } catch (err) {
         log(`❌ Error en handleOffer: ${err.message}`, 'ERROR');
@@ -696,7 +654,6 @@ async function handleOffer(data) {
 }
 
 async function handleAnswer(data) {
-    // Solo el broadcaster maneja esto
     log(`📥 Respuesta recibida de ${data.from} (broadcaster)`, 'INFO');
     
     if (selectedRole === 'admin') {
@@ -720,7 +677,6 @@ async function handleIceCandidate(data) {
             await peerConnectionViewer.addIceCandidate(new RTCIceCandidate(data.candidate));
             log('✅ ICE candidate agregado al viewer', 'SUCCESS');
             
-            // Verificar estado después de agregar
             setTimeout(() => {
                 if (peerConnectionViewer) {
                     log(`🧊 Estado ICE actual: ${peerConnectionViewer.iceConnectionState}`, 'INFO');
@@ -738,8 +694,6 @@ async function handleIceCandidate(data) {
                         log(`🧊 Estado ICE viewer ${data.from}: ${pc.iceConnectionState}`, 'INFO');
                     }
                 }, 500);
-            } else {
-                log(`⚠️ No se encontró conexión para viewer ${data.from}`, 'WARN');
             }
         }
     } catch (err) {
@@ -787,7 +741,6 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.joinBtn.addEventListener('click', joinRoom);
     elements.leaveBtn.addEventListener('click', leaveRoom);
     
-    // Click en video para reproducción en PC
     if (elements.remoteVideo) {
         elements.remoteVideo.addEventListener('click', () => {
             elements.remoteVideo.play();
@@ -797,7 +750,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
     
-    // Enter en inputs de login
     elements.loginUsername.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') login();
     });
