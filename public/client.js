@@ -74,6 +74,22 @@ for (const [key, el] of Object.entries(elements)) {
 }
 
 // ============================================
+// DETECCIÓN DE DISPOSITIVO
+// ============================================
+function detectDevice() {
+    const ua = navigator.userAgent.toLowerCase();
+    const isMobile = /mobile|android|iphone|ipad|ipod|blackberry|windows phone/i.test(ua);
+    const isTablet = /tablet|ipad/i.test(ua);
+    const isPC = !isMobile && !isTablet;
+    
+    log(`📱 Dispositivo: ${isMobile ? 'MÓVIL' : isTablet ? 'TABLET' : 'PC'}`, 'INFO');
+    
+    return { isMobile, isTablet, isPC };
+}
+
+const device = detectDevice();
+
+// ============================================
 // ESTADO
 // ============================================
 let socket = null;
@@ -87,11 +103,11 @@ let selectedRole = null;
 let isAuthenticated = false;
 
 // ============================================
-// CONFIGURACIÓN STUN/TURN MEJORADA
+// CONFIGURACIÓN STUN/TURN - METERED.CA
 // ============================================
 const configuration = {
     iceServers: [
-        // Servidores STUN (para conexión directa)
+        // Servidores STUN (confiables)
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
         { urls: 'stun:stun2.l.google.com:19302' },
@@ -101,21 +117,17 @@ const configuration = {
         { urls: 'stun:stun.ideasip.com' },
         { urls: 'stun:stun.schlund.de' },
         
-        // Servidores TURN gratuitos (para cuando no hay conexión directa)
+        // Servidores TURN de Metered.ca (configurados)
         {
-            urls: 'turn:openrelay.metered.ca:80',
-            username: 'openrelayproject',
-            credential: 'openrelayproject'
-        },
-        {
-            urls: 'turn:openrelay.metered.ca:443',
-            username: 'openrelayproject',
-            credential: 'openrelayproject'
-        },
-        {
-            urls: 'turn:openrelay.metered.ca:5349',
-            username: 'openrelayproject',
-            credential: 'openrelayproject'
+            urls: [
+                'turn:global.relay.metered.ca:80',
+                'turn:global.relay.metered.ca:80?transport=tcp',
+                'turn:global.relay.metered.ca:443',
+                'turns:global.relay.metered.ca:443?transport=tcp'
+            ],
+            username: 'sangamarcad1@gmail.com',
+            credential: '1996israel',
+            credentialType: 'password'
         }
     ],
     iceCandidatePoolSize: 10,
@@ -343,6 +355,7 @@ function joinRoom() {
     const roomName = elements.viewRoomId?.value.trim() || 'sala1';
     
     log(`👋 Uniéndose a sala: ${roomName}`, 'VIEWER');
+    log(`💻 Dispositivo: ${device.isPC ? 'PC' : 'MÓVIL'}`, 'INFO');
     
     elements.joinBtn.disabled = true;
     elements.leaveBtn.disabled = false;
@@ -354,9 +367,11 @@ function joinRoom() {
         log('⚠️ Socket no conectado, reconectando...', 'WARN');
         connectToServer();
         setTimeout(() => {
+            log('📡 Emitiendo viewer-join después de reconexión', 'INFO');
             socket.emit('viewer-join', roomName);
-        }, 1000);
+        }, 1500);
     } else {
+        log('📡 Emitiendo viewer-join directamente', 'INFO');
         socket.emit('viewer-join', roomName);
     }
     
@@ -480,7 +495,7 @@ function connectToServer() {
     });
     
     // ============================================
-    // EVENTO PARA BROADCASTER - CORREGIDO
+    // EVENTO PARA BROADCASTER
     // ============================================
     socket.on('viewer-joined', (data) => {
         const viewerId = data.viewerId;
@@ -595,6 +610,7 @@ async function handleOffer(data) {
     }
     
     try {
+        // Si no hay peer connection, crearla (incluso si tardó)
         if (!peerConnectionViewer) {
             log('🆕 Creando nueva PeerConnection como viewer', 'INFO');
             peerConnectionViewer = new RTCPeerConnection(configuration);
@@ -606,9 +622,21 @@ async function handleOffer(data) {
                 
                 if (elements.remoteVideo) {
                     elements.remoteVideo.srcObject = event.streams[0];
-                    elements.remoteVideo.play()
-                        .then(() => log('✅ Video reproduciéndose', 'SUCCESS'))
-                        .catch(e => log(`⚠️ Error al reproducir: ${e.message}`, 'WARN'));
+                    
+                    // Forzar reproducción con manejo de errores
+                    const playPromise = elements.remoteVideo.play();
+                    if (playPromise !== undefined) {
+                        playPromise
+                            .then(() => log('✅ Video reproduciéndose', 'SUCCESS'))
+                            .catch(e => {
+                                log(`⚠️ Error al reproducir: ${e.message}`, 'WARN');
+                                // En PC a veces necesita interacción del usuario
+                                if (device.isPC) {
+                                    elements.remoteOverlay.innerHTML = '<span>👉 Haz clic en el video para reproducir</span>';
+                                    elements.remoteOverlay.style.display = 'flex';
+                                }
+                            });
+                    }
                     
                     if (elements.remoteOverlay) {
                         elements.remoteOverlay.style.display = 'none';
@@ -644,6 +672,11 @@ async function handleOffer(data) {
                     log('❌ ICE failed - Problema de conectividad', 'ERROR');
                     updateStatus('❌ Error de conexión');
                 }
+            };
+            
+            // También agregar listener para connectionstate
+            peerConnectionViewer.onconnectionstatechange = () => {
+                log(`🔌 Connection state: ${peerConnectionViewer.connectionState}`, 'INFO');
             };
         }
         
@@ -762,6 +795,16 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.stopBtn.addEventListener('click', stopBroadcast);
     elements.joinBtn.addEventListener('click', joinRoom);
     elements.leaveBtn.addEventListener('click', leaveRoom);
+    
+    // Click en video para reproducción en PC
+    if (elements.remoteVideo) {
+        elements.remoteVideo.addEventListener('click', () => {
+            elements.remoteVideo.play();
+            if (elements.remoteOverlay) {
+                elements.remoteOverlay.style.display = 'none';
+            }
+        });
+    }
     
     // Enter en inputs de login
     elements.loginUsername.addEventListener('keypress', (e) => {
