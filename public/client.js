@@ -1,5 +1,5 @@
 // ============================================
-// CLIENTE CON SELECCIÓN DE ROL - VERSIÓN FINAL CON TURN
+// CLIENTE CON SELECCIÓN DE ROL - CON TURN DE CLOUDFLARE
 // ============================================
 
 console.log('🚀 Cliente iniciando...');
@@ -103,11 +103,11 @@ let selectedRole = null;
 let isAuthenticated = false;
 
 // ============================================
-// CONFIGURACIÓN STUN/TURN - METERED.CA
+// CONFIGURACIÓN CON TURN DE CLOUDFLARE (SIN AUTENTICACIÓN)
 // ============================================
 const configuration = {
     iceServers: [
-        // Servidores STUN (confiables)
+        // Servidores STUN
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
         { urls: 'stun:stun2.l.google.com:19302' },
@@ -115,20 +115,11 @@ const configuration = {
         { urls: 'stun:stun4.l.google.com:19302' },
         { urls: 'stun:stun.ekiga.net' },
         { urls: 'stun:stun.ideasip.com' },
-        { urls: 'stun:stun.schlund.de' },
         
-        // Servidores TURN de Metered.ca (configurados)
-        {
-            urls: [
-                'turn:global.relay.metered.ca:80',
-                'turn:global.relay.metered.ca:80?transport=tcp',
-                'turn:global.relay.metered.ca:443',
-                'turns:global.relay.metered.ca:443?transport=tcp'
-            ],
-            username: 'sangamarcad1@gmail.com',
-            credential: '1996israel',
-            credentialType: 'password'
-        }
+        // TURN de Cloudflare (gratis, sin autenticación)
+        { urls: 'turn:turn.cloudflare.com:3478?transport=udp' },
+        { urls: 'turn:turn.cloudflare.com:3478?transport=tcp' },
+        { urls: 'turns:turn.cloudflare.com:5349?transport=tcp' }
     ],
     iceCandidatePoolSize: 10,
     iceTransportPolicy: 'all',
