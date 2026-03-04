@@ -1,5 +1,5 @@
 // ============================================
-// CLIENTE CON SELECCIÓN DE ROL - VERSIÓN MULTIVIEWER FINAL
+// CLIENTE CON SELECCIÓN DE ROL - VERSIÓN FINAL CON DIAGNÓSTICO
 // ============================================
 
 console.log('🚀 Cliente multiviewer final iniciando...');
@@ -606,7 +606,7 @@ function connectToServer() {
     });
     
     // ============================================
-    // EVENTOS WEBRTC PARA VIEWER
+    // EVENTOS WEBRTC PARA VIEWER - VERSIÓN CON DIAGNÓSTICO
     // ============================================
     socket.on('offer', handleOffer);
     socket.on('answer', handleAnswer);
@@ -614,7 +614,7 @@ function connectToServer() {
 }
 
 // ============================================
-// WEBRTC HANDLERS (PARA VIEWER)
+// WEBRTC HANDLERS (PARA VIEWER) - VERSIÓN CON DIAGNÓSTICO
 // ============================================
 async function handleOffer(data) {
     log(`📥 OFERTA RECIBIDA del broadcaster ${data.from}`, 'SUCCESS');
@@ -630,9 +630,24 @@ async function handleOffer(data) {
             peerConnectionViewer = new RTCPeerConnection(configuration);
             
             peerConnectionViewer.ontrack = (event) => {
-                log('🎥 TRACK DE VIDEO RECIBIDO 🎥', 'SUCCESS');
+                log(`🎥 EVENTO ONTRACK DISPARADO`, 'CRITICAL');
+                log(`📊 Tipo de evento: ${event.type}`, 'INFO');
+                log(`📊 Número de streams: ${event.streams.length}`, 'INFO');
+                log(`📊 Track kind: ${event.track.kind}`, 'INFO');
+                log(`📊 Track ID: ${event.track.id}`, 'INFO');
+                log(`📊 Track enabled: ${event.track.enabled}`, 'INFO');
+                log(`📊 Track muted: ${event.track.muted}`, 'INFO');
+                log(`📊 Track readyState: ${event.track.readyState}`, 'INFO');
+                
+                if (event.streams && event.streams[0]) {
+                    const stream = event.streams[0];
+                    log(`📊 Stream ID: ${stream.id}`, 'INFO');
+                    log(`📊 Video tracks en stream: ${stream.getVideoTracks().length}`, 'INFO');
+                    log(`📊 Audio tracks en stream: ${stream.getAudioTracks().length}`, 'INFO');
+                }
                 
                 if (elements.remoteVideo) {
+                    log(`🎯 Asignando stream a remoteVideo`, 'INFO');
                     elements.remoteVideo.srcObject = event.streams[0];
                     
                     const playPromise = elements.remoteVideo.play();
@@ -640,7 +655,7 @@ async function handleOffer(data) {
                         playPromise
                             .then(() => log('✅ Video reproduciéndose', 'SUCCESS'))
                             .catch(e => {
-                                log(`⚠️ Error al reproducir: ${e.message}`, 'WARN');
+                                log(`❌ Error al reproducir: ${e.message}`, 'ERROR');
                                 if (device.isPC) {
                                     elements.remoteOverlay.innerHTML = '<span>👉 Haz clic en el video para reproducir</span>';
                                     elements.remoteOverlay.style.display = 'flex';
@@ -653,6 +668,8 @@ async function handleOffer(data) {
                     }
                     
                     updateStatus('✅ Video recibido');
+                } else {
+                    log('❌ Elemento remoteVideo no encontrado', 'ERROR');
                 }
             };
             
@@ -671,6 +688,10 @@ async function handleOffer(data) {
                 if (peerConnectionViewer.iceConnectionState === 'connected') {
                     updateStatus('✅ Conexión establecida');
                 }
+                if (peerConnectionViewer.iceConnectionState === 'failed') {
+                    log('❌ ICE failed - Problema de conectividad', 'ERROR');
+                    updateStatus('❌ Error de conexión');
+                }
             };
         }
         
@@ -686,6 +707,23 @@ async function handleOffer(data) {
             answer: answer 
         });
         log('📤 Respuesta enviada', 'SUCCESS');
+        
+        // MONITOR DE CONEXIÓN
+        const checkInterval = setInterval(() => {
+            if (peerConnectionViewer) {
+                log(`🔍 Monitor: ICE=${peerConnectionViewer.iceConnectionState}, Connection=${peerConnectionViewer.connectionState}`, 'INFO');
+                
+                if (elements.remoteVideo && elements.remoteVideo.srcObject) {
+                    log('✅ Video recibido, deteniendo monitor', 'SUCCESS');
+                    clearInterval(checkInterval);
+                }
+                
+                if (peerConnectionViewer.iceConnectionState === 'failed') {
+                    log('❌ Conexión fallida - reintenta más tarde', 'ERROR');
+                    clearInterval(checkInterval);
+                }
+            }
+        }, 5000);
         
     } catch (err) {
         log(`❌ Error en handleOffer: ${err.message}`, 'ERROR');
