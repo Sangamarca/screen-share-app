@@ -1,5 +1,5 @@
 // ============================================
-// CLIENTE CON SELECCIÓN DE ROL - VERSIÓN FINAL CON DIAGNÓSTICO
+// CLIENTE CON SELECCIÓN DE ROL - VERSIÓN FINAL ESTABLE
 // ============================================
 
 console.log('🚀 Cliente multiviewer final iniciando...');
@@ -101,6 +101,7 @@ let isBroadcaster = false;
 let isViewer = false;
 let selectedRole = null;
 let isAuthenticated = false;
+let wakeLock = null;
 
 // ============================================
 // CONFIGURACIÓN SOLO STUN (SIN TURN)
@@ -242,7 +243,7 @@ window.logout = async function() {
 };
 
 // ============================================
-// MODO BROADCASTER (ADMIN)
+// MODO BROADCASTER (ADMIN) - CON CALIDAD ADAPTATIVA
 // ============================================
 function initBroadcasterMode() {
     log('🎥 Modo administrador activado', 'SUCCESS');
@@ -255,12 +256,30 @@ async function startBroadcast() {
         
         log('📤 Solicitando captura de pantalla...', 'BROADCASTER');
         
-        localStream = await navigator.mediaDevices.getDisplayMedia({
-            video: { 
+        // CALIDAD ADAPTATIVA SEGÚN NÚMERO DE VIEWERS
+        const currentViewers = peerConnections.size;
+        let videoConstraints;
+        
+        if (currentViewers >= 2) {
+            // 2+ viewers - calidad baja para estabilidad
+            videoConstraints = {
+                width: { ideal: 640, max: 854 },
+                height: { ideal: 360, max: 480 },
+                frameRate: { ideal: 15, max: 20 }
+            };
+            log(`📊 Calidad BAJA para ${currentViewers + 1} viewers`, 'INFO');
+        } else {
+            // 1 viewer - calidad normal
+            videoConstraints = {
                 width: { ideal: 854, max: 1024 },
                 height: { ideal: 480, max: 576 },
                 frameRate: { ideal: 30, max: 30 }
-            },
+            };
+            log('📊 Calidad NORMAL', 'INFO');
+        }
+        
+        localStream = await navigator.mediaDevices.getDisplayMedia({
+            video: videoConstraints,
             audio: true
         });
         
@@ -324,6 +343,31 @@ function stopBroadcast() {
 function initViewerMode() {
     log('👁️ Modo espectador activado', 'SUCCESS');
     connectToServer();
+    
+    // ACTIVAR WAKE LOCK PARA EVITAR QUE EL CELULAR SE DUERMA
+    if (device.isMobile && 'wakeLock' in navigator) {
+        async function requestWakeLock() {
+            try {
+                wakeLock = await navigator.wakeLock.request('screen');
+                log('🔋 Wake Lock activado - pantalla no se dormirá', 'SUCCESS');
+                
+                wakeLock.addEventListener('release', () => {
+                    log('🔋 Wake Lock liberado', 'INFO');
+                });
+            } catch (err) {
+                log(`⚠️ No se pudo activar Wake Lock: ${err.message}`, 'WARN');
+            }
+        }
+        
+        requestWakeLock();
+        
+        // Re-activar cuando la página vuelva a estar visible
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible' && !wakeLock) {
+                requestWakeLock();
+            }
+        });
+    }
 }
 
 function joinRoom() {
@@ -374,6 +418,12 @@ function leaveRoom() {
     
     currentRoom = null;
     updateStatus('Desconectado');
+    
+    // Liberar wake lock
+    if (wakeLock) {
+        wakeLock.release();
+        wakeLock = null;
+    }
 }
 
 // ============================================
@@ -468,7 +518,7 @@ function connectToServer() {
     });
     
     // ============================================
-    // EVENTO PARA BROADCASTER - VERSIÓN MULTIVIEWER CON DIAGNÓSTICO
+    // EVENTO PARA BROADCASTER - VERSIÓN MULTIVIEWER
     // ============================================
     socket.on('viewer-joined', (data) => {
         const viewerId = data.viewerId;
@@ -493,35 +543,30 @@ function connectToServer() {
             log(`🆕 Creando PeerConnection #${viewerNumber} para viewer ${viewerId}`, 'INFO');
             const pc = new RTCPeerConnection(configuration);
             
-            // ===== VERIFICAR STREAM LOCAL =====
+            // VERIFICAR STREAM LOCAL
             const tracks = localStream.getTracks();
             log(`📹 Stream local tiene ${tracks.length} tracks:`, 'INFO');
             tracks.forEach((track, i) => {
-                log(`   Track ${i+1}: ${track.kind} (enabled: ${track.enabled}, readyState: ${track.readyState})`, 'INFO');
+                log(`   Track ${i+1}: ${track.kind} (enabled: ${track.enabled})`, 'INFO');
             });
             
-            if (tracks.length === 0) {
-                log('❌ ERROR: No hay tracks en el stream local', 'ERROR');
-                return;
-            }
-            
-            // ===== AÑADIR TRACKS =====
+            // AÑADIR TRACKS
             tracks.forEach((track, index) => {
                 try {
                     pc.addTrack(track, localStream);
-                    log(`✅ Track ${index + 1} (${track.kind}) añadido correctamente`, 'SUCCESS');
+                    log(`✅ Track ${index + 1} (${track.kind}) añadido`, 'SUCCESS');
                 } catch (err) {
-                    log(`❌ Error añadiendo track ${track.kind}: ${err.message}`, 'ERROR');
+                    log(`❌ Error añadiendo track: ${err.message}`, 'ERROR');
                 }
             });
             
-            // Verificar senders después de añadir
+            // Verificar senders
             setTimeout(() => {
                 const senders = pc.getSenders();
                 log(`📊 Senders después de 1s: ${senders.length}`, 'INFO');
             }, 1000);
             
-            // Manejar ICE candidates
+            // ICE candidates
             pc.onicecandidate = (event) => {
                 if (event.candidate) {
                     log(`🧊 Enviando ICE candidate a ${viewerId}`, 'INFO');
@@ -537,26 +582,6 @@ function connectToServer() {
                 if (pc.iceConnectionState === 'connected') {
                     log(`✅ Viewer ${viewerId} conectado vía ICE`, 'SUCCESS');
                 }
-                if (pc.iceConnectionState === 'failed') {
-                    log(`❌ ICE failed para viewer ${viewerId}`, 'ERROR');
-                    
-                    // Reintentar crear oferta si falla
-                    log(`🔄 Reintentando crear oferta para ${viewerId}...`, 'INFO');
-                    setTimeout(() => {
-                        if (pc.iceConnectionState === 'failed') {
-                            pc.createOffer()
-                                .then(offer => pc.setLocalDescription(offer))
-                                .then(() => {
-                                    socket.emit('offer', {
-                                        target: viewerId,
-                                        offer: pc.localDescription
-                                    });
-                                    log(`📤 Reintento de oferta enviado a ${viewerId}`, 'SUCCESS');
-                                })
-                                .catch(err => log(`❌ Error en reintento: ${err.message}`, 'ERROR'));
-                        }
-                    }, 2000);
-                }
             };
             
             // Guardar en Map
@@ -564,25 +589,23 @@ function connectToServer() {
             log(`💾 Viewer ${viewerId} guardado en Map (total: ${peerConnections.size})`, 'INFO');
             
             // Crear oferta
-            log(`📤 Creando oferta para viewer #${viewerNumber} (${viewerId})...`, 'INFO');
+            log(`📤 Creando oferta para viewer #${viewerNumber}...`, 'INFO');
             
             pc.createOffer()
                 .then(offer => {
-                    log(`✅ Oferta creada para ${viewerId}`, 'SUCCESS');
+                    log(`✅ Oferta creada`, 'SUCCESS');
                     return pc.setLocalDescription(offer);
                 })
                 .then(() => {
                     log(`📤 Enviando oferta a ${viewerId}...`, 'INFO');
-                    
                     socket.emit('offer', {
                         target: viewerId,
                         offer: pc.localDescription
                     });
-                    
                     log(`✅ Oferta enviada a ${viewerId}`, 'SUCCESS');
                 })
                 .catch(err => {
-                    log(`❌ ERROR en createOffer: ${err.message}`, 'ERROR');
+                    log(`❌ ERROR: ${err.message}`, 'ERROR');
                     peerConnections.delete(viewerId);
                     pc.close();
                 });
@@ -595,7 +618,6 @@ function connectToServer() {
     socket.on('viewer-left', (data) => {
         const viewerId = data.viewerId;
         log(`👋 Viewer ${viewerId} desconectado`, 'INFO');
-        log(`👥 Viewers restantes: ${data.totalViewers}`, 'INFO');
         
         const pc = peerConnections.get(viewerId);
         if (pc) {
@@ -606,7 +628,7 @@ function connectToServer() {
     });
     
     // ============================================
-    // EVENTOS WEBRTC PARA VIEWER - VERSIÓN CON DIAGNÓSTICO
+    // EVENTOS WEBRTC PARA VIEWER - CON RECONEXIÓN
     // ============================================
     socket.on('offer', handleOffer);
     socket.on('answer', handleAnswer);
@@ -614,7 +636,7 @@ function connectToServer() {
 }
 
 // ============================================
-// WEBRTC HANDLERS (PARA VIEWER) - VERSIÓN CON DIAGNÓSTICO
+// HANDLER OFFER - CON RECONEXIÓN AUTOMÁTICA
 // ============================================
 async function handleOffer(data) {
     log(`📥 OFERTA RECIBIDA del broadcaster ${data.from}`, 'SUCCESS');
@@ -630,52 +652,25 @@ async function handleOffer(data) {
             peerConnectionViewer = new RTCPeerConnection(configuration);
             
             peerConnectionViewer.ontrack = (event) => {
-                log(`🎥 EVENTO ONTRACK DISPARADO`, 'CRITICAL');
-                log(`📊 Tipo de evento: ${event.type}`, 'INFO');
-                log(`📊 Número de streams: ${event.streams.length}`, 'INFO');
-                log(`📊 Track kind: ${event.track.kind}`, 'INFO');
-                log(`📊 Track ID: ${event.track.id}`, 'INFO');
-                log(`📊 Track enabled: ${event.track.enabled}`, 'INFO');
-                log(`📊 Track muted: ${event.track.muted}`, 'INFO');
-                log(`📊 Track readyState: ${event.track.readyState}`, 'INFO');
-                
-                if (event.streams && event.streams[0]) {
-                    const stream = event.streams[0];
-                    log(`📊 Stream ID: ${stream.id}`, 'INFO');
-                    log(`📊 Video tracks en stream: ${stream.getVideoTracks().length}`, 'INFO');
-                    log(`📊 Audio tracks en stream: ${stream.getAudioTracks().length}`, 'INFO');
-                }
+                log(`🎥 VIDEO RECIBIDO 🎥`, 'SUCCESS');
                 
                 if (elements.remoteVideo) {
-                    log(`🎯 Asignando stream a remoteVideo`, 'INFO');
                     elements.remoteVideo.srcObject = event.streams[0];
                     
-                    const playPromise = elements.remoteVideo.play();
-                    if (playPromise !== undefined) {
-                        playPromise
-                            .then(() => log('✅ Video reproduciéndose', 'SUCCESS'))
-                            .catch(e => {
-                                log(`❌ Error al reproducir: ${e.message}`, 'ERROR');
-                                if (device.isPC) {
-                                    elements.remoteOverlay.innerHTML = '<span>👉 Haz clic en el video para reproducir</span>';
-                                    elements.remoteOverlay.style.display = 'flex';
-                                }
-                            });
-                    }
+                    elements.remoteVideo.play()
+                        .then(() => log('✅ Video reproduciéndose', 'SUCCESS'))
+                        .catch(e => log(`❌ Error al reproducir: ${e.message}`, 'ERROR'));
                     
                     if (elements.remoteOverlay) {
                         elements.remoteOverlay.style.display = 'none';
                     }
                     
                     updateStatus('✅ Video recibido');
-                } else {
-                    log('❌ Elemento remoteVideo no encontrado', 'ERROR');
                 }
             };
             
             peerConnectionViewer.onicecandidate = (event) => {
                 if (event.candidate) {
-                    log(`🧊 Enviando ICE candidate al broadcaster`, 'INFO');
                     socket.emit('ice-candidate', {
                         target: data.from,
                         candidate: event.candidate
@@ -685,13 +680,6 @@ async function handleOffer(data) {
             
             peerConnectionViewer.oniceconnectionstatechange = () => {
                 log(`🧊 ICE state: ${peerConnectionViewer.iceConnectionState}`, 'INFO');
-                if (peerConnectionViewer.iceConnectionState === 'connected') {
-                    updateStatus('✅ Conexión establecida');
-                }
-                if (peerConnectionViewer.iceConnectionState === 'failed') {
-                    log('❌ ICE failed - Problema de conectividad', 'ERROR');
-                    updateStatus('❌ Error de conexión');
-                }
             };
         }
         
@@ -708,22 +696,34 @@ async function handleOffer(data) {
         });
         log('📤 Respuesta enviada', 'SUCCESS');
         
-        // MONITOR DE CONEXIÓN
+        // MONITOR DE CONEXIÓN CON RECONEXIÓN AUTOMÁTICA
+        const broadcasterId = data.from;
         const checkInterval = setInterval(() => {
             if (peerConnectionViewer) {
-                log(`🔍 Monitor: ICE=${peerConnectionViewer.iceConnectionState}, Connection=${peerConnectionViewer.connectionState}`, 'INFO');
+                const iceState = peerConnectionViewer.iceConnectionState;
                 
-                if (elements.remoteVideo && elements.remoteVideo.srcObject) {
-                    log('✅ Video recibido, deteniendo monitor', 'SUCCESS');
+                if (elements.remoteVideo && elements.remoteVideo.srcObject && iceState === 'connected') {
+                    log('✅ Video estable, deteniendo monitor', 'SUCCESS');
                     clearInterval(checkInterval);
                 }
                 
-                if (peerConnectionViewer.iceConnectionState === 'failed') {
-                    log('❌ Conexión fallida - reintenta más tarde', 'ERROR');
-                    clearInterval(checkInterval);
+                // SI SE DESCONECTA, RECONECTAR
+                if (iceState === 'disconnected' || iceState === 'failed') {
+                    log('⚠️ Conexión perdida, reintentando...', 'WARN');
+                    
+                    peerConnectionViewer.createOffer()
+                        .then(offer => peerConnectionViewer.setLocalDescription(offer))
+                        .then(() => {
+                            socket.emit('offer', {
+                                target: broadcasterId,
+                                offer: peerConnectionViewer.localDescription
+                            });
+                            log('📤 Reintento de oferta enviado', 'INFO');
+                        })
+                        .catch(err => log(`❌ Error en reintento: ${err.message}`, 'ERROR'));
                 }
             }
-        }, 5000);
+        }, 3000);
         
     } catch (err) {
         log(`❌ Error en handleOffer: ${err.message}`, 'ERROR');
@@ -731,8 +731,6 @@ async function handleOffer(data) {
 }
 
 async function handleAnswer(data) {
-    log(`📥 Respuesta recibida de ${data.from} (broadcaster)`, 'INFO');
-    
     if (selectedRole === 'admin') {
         const pc = peerConnections.get(data.from);
         if (pc) {
@@ -747,32 +745,15 @@ async function handleAnswer(data) {
 }
 
 async function handleIceCandidate(data) {
-    log(`🧊 ICE candidate recibido de ${data.from}`, 'INFO');
-    
     try {
         if (selectedRole === 'viewer' && peerConnectionViewer) {
             await peerConnectionViewer.addIceCandidate(new RTCIceCandidate(data.candidate));
-            log('✅ ICE candidate agregado al viewer', 'SUCCESS');
-            
-            setTimeout(() => {
-                if (peerConnectionViewer) {
-                    log(`🧊 Estado ICE actual: ${peerConnectionViewer.iceConnectionState}`, 'INFO');
-                }
-            }, 500);
-            
+            log('✅ ICE candidate agregado', 'SUCCESS');
         } else if (selectedRole === 'admin') {
             const pc = peerConnections.get(data.from);
             if (pc) {
                 await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
                 log(`✅ ICE agregado para viewer ${data.from}`, 'SUCCESS');
-                
-                setTimeout(() => {
-                    if (pc) {
-                        log(`🧊 Estado ICE viewer ${data.from}: ${pc.iceConnectionState}`, 'INFO');
-                    }
-                }, 500);
-            } else {
-                log(`⚠️ No se encontró conexión para viewer ${data.from}`, 'WARN');
             }
         }
     } catch (err) {
