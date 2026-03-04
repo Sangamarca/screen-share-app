@@ -1,5 +1,5 @@
 // ============================================
-// CLIENTE SIMPLIFICADO - FUNCIONA CON MÚLTIPLES VIEWERS
+// CLIENTE SIMPLIFICADO - CON LOGIN FUNCIONAL
 // ============================================
 
 console.log('🚀 Cliente simplificado iniciando...');
@@ -45,7 +45,16 @@ const elements = {
     roomId: document.getElementById('roomId'),
     viewRoomId: document.getElementById('viewRoomId'),
     localOverlay: document.getElementById('localOverlay'),
-    remoteOverlay: document.getElementById('remoteOverlay')
+    remoteOverlay: document.getElementById('remoteOverlay'),
+    roleSelector: document.getElementById('roleSelector'),
+    mainContent: document.getElementById('mainContent'),
+    loginModal: document.getElementById('loginModal'),
+    sessionInfo: document.getElementById('sessionInfo'),
+    broadcastPanel: document.getElementById('broadcastPanel'),
+    localVideoCard: document.getElementById('localVideoCard'),
+    loginUsername: document.getElementById('loginUsername'),
+    loginPassword: document.getElementById('loginPassword'),
+    loginError: document.getElementById('loginError')
 };
 
 // Estado
@@ -55,6 +64,7 @@ let pc = null;
 let isBroadcaster = false;
 let currentRoom = null;
 let isAuthenticated = false;
+let selectedRole = null;
 
 // Configuración STUN
 const servers = {
@@ -64,40 +74,129 @@ const servers = {
     ]
 };
 
-// Login (simplificado - solo para pruebas)
-window.login = function() {
-    isAuthenticated = true;
-    document.getElementById('loginModal').style.display = 'none';
-    document.getElementById('roleSelector').style.display = 'none';
-    document.getElementById('mainContent').style.display = 'block';
-    document.getElementById('broadcastPanel').style.display = 'block';
-    document.getElementById('localVideoCard').style.display = 'block';
-    initBroadcaster();
-    log('✅ Login exitoso');
-};
-
+// ============================================
+// SELECCIÓN DE ROL
+// ============================================
 window.selectRole = function(role) {
+    log(`🎯 Rol seleccionado: ${role}`);
+    selectedRole = role;
+    
     if (role === 'admin') {
-        document.getElementById('loginModal').style.display = 'flex';
+        elements.loginModal.style.display = 'flex';
+        setTimeout(() => elements.loginUsername.focus(), 100);
     } else {
-        document.getElementById('roleSelector').style.display = 'none';
-        document.getElementById('mainContent').style.display = 'block';
+        elements.roleSelector.style.display = 'none';
+        elements.mainContent.style.display = 'block';
         initViewer();
     }
 };
 
-// Iniciar broadcaster
+window.cancelLogin = function() {
+    elements.loginModal.style.display = 'none';
+    elements.loginUsername.value = '';
+    elements.loginPassword.value = '';
+    elements.loginError.style.display = 'none';
+};
+
+// ============================================
+// LOGIN
+// ============================================
+window.login = async function() {
+    const username = elements.loginUsername.value.trim();
+    const password = elements.loginPassword.value.trim();
+    
+    if (!username || !password) {
+        showLoginError('Ingresa usuario y contraseña');
+        return;
+    }
+    
+    log('🔐 Intentando login...');
+    
+    try {
+        const response = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            log('✅ Login exitoso');
+            isAuthenticated = true;
+            elements.loginModal.style.display = 'none';
+            elements.roleSelector.style.display = 'none';
+            elements.mainContent.style.display = 'block';
+            
+            elements.broadcastPanel.style.display = 'block';
+            elements.localVideoCard.style.display = 'block';
+            elements.sessionInfo.style.display = 'flex';
+            
+            elements.startBtn.disabled = false;
+            
+            initBroadcaster();
+        } else {
+            log('❌ Login fallido');
+            showLoginError(data.error || 'Credenciales inválidas');
+        }
+    } catch (err) {
+        log(`❌ Error: ${err.message}`);
+        showLoginError('Error de conexión');
+    }
+};
+
+function showLoginError(msg) {
+    elements.loginError.textContent = msg;
+    elements.loginError.style.display = 'block';
+}
+
+window.logout = async function() {
+    try {
+        await fetch('/api/auth/logout', { method: 'POST' });
+        isAuthenticated = false;
+        
+        if (isBroadcaster) {
+            stopBroadcast();
+        }
+        
+        elements.sessionInfo.style.display = 'none';
+        elements.broadcastPanel.style.display = 'none';
+        elements.localVideoCard.style.display = 'none';
+        elements.mainContent.style.display = 'none';
+        elements.roleSelector.style.display = 'block';
+        
+        elements.loginUsername.value = '';
+        elements.loginPassword.value = '';
+        
+        if (socket) {
+            socket.disconnect();
+            socket = null;
+        }
+        
+        log('👋 Sesión cerrada');
+    } catch (err) {
+        console.error(err);
+    }
+};
+
+// ============================================
+// BROADCASTER
+// ============================================
 function initBroadcaster() {
     log('🎥 Modo broadcaster');
     socket = io();
     
-    socket.on('connect', () => log('✅ Conectado'));
+    socket.on('connect', () => log('✅ Conectado al servidor'));
     socket.on('viewer-joined', handleViewerJoined);
+    socket.on('answer', handleAnswer);
+    socket.on('ice-candidate', handleIceCandidate);
 }
 
 async function startBroadcast() {
     try {
+        const roomName = elements.roomId.value.trim() || 'sala1';
         log('📤 Solicitando pantalla...');
+        
         localStream = await navigator.mediaDevices.getDisplayMedia({
             video: true,
             audio: true
@@ -107,13 +206,13 @@ async function startBroadcast() {
         elements.localOverlay.style.display = 'none';
         
         isBroadcaster = true;
-        currentRoom = elements.roomId.value || 'sala1';
+        currentRoom = roomName;
         
         elements.startBtn.disabled = true;
         elements.stopBtn.disabled = false;
         
-        socket.emit('broadcaster-join', currentRoom);
-        log(`📡 Transmitiendo en ${currentRoom}`);
+        socket.emit('broadcaster-join', roomName);
+        log(`📡 Transmitiendo en ${roomName}`);
         
         localStream.getVideoTracks()[0].onended = () => stopBroadcast();
         
@@ -139,13 +238,12 @@ function stopBroadcast() {
     log('⏹️ Transmisión detenida');
 }
 
-// Manejar nuevos viewers
 function handleViewerJoined(data) {
     const viewerId = data.viewerId;
     log(`👁️ Nuevo viewer: ${viewerId}`);
     
     if (!localStream) {
-        log('❌ No hay stream');
+        log('❌ No hay stream local');
         return;
     }
     
@@ -174,25 +272,38 @@ function handleViewerJoined(data) {
                 offer: pc.localDescription
             });
             log('📤 Oferta enviada');
-        });
+        })
+        .catch(err => log(`❌ Error: ${err.message}`));
 }
 
-// Iniciar viewer
+function handleAnswer(data) {
+    log(`📥 Respuesta recibida de ${data.from}`);
+    // Aquí iría la lógica para manejar la respuesta
+}
+
+function handleIceCandidate(data) {
+    log(`🧊 ICE candidate de ${data.from}`);
+    // Aquí iría la lógica para manejar ICE
+}
+
+// ============================================
+// VIEWER
+// ============================================
 function initViewer() {
     log('👁️ Modo viewer');
     socket = io();
     
-    socket.on('connect', () => log('✅ Conectado'));
+    socket.on('connect', () => log('✅ Conectado al servidor'));
     socket.on('room-joined', (data) => {
         log(`✅ Unido a sala: ${data.roomId}`);
         elements.remoteOverlay.style.display = 'none';
     });
     socket.on('offer', handleOffer);
-    socket.on('ice-candidate', handleIceCandidate);
+    socket.on('ice-candidate', handleIceCandidateViewer);
 }
 
 function joinRoom() {
-    const room = elements.viewRoomId.value || 'sala1';
+    const room = elements.viewRoomId.value.trim() || 'sala1';
     log(`👋 Uniéndose a ${room}`);
     elements.joinBtn.disabled = true;
     elements.leaveBtn.disabled = false;
@@ -220,7 +331,9 @@ async function handleOffer(data) {
     pc.ontrack = (event) => {
         log('🎥 VIDEO RECIBIDO!');
         elements.remoteVideo.srcObject = event.streams[0];
-        elements.remoteVideo.play();
+        elements.remoteVideo.play()
+            .then(() => log('✅ Video reproduciéndose'))
+            .catch(e => log(`❌ Error play: ${e.message}`));
         elements.remoteOverlay.style.display = 'none';
     };
     
@@ -244,19 +357,29 @@ async function handleOffer(data) {
     log('📤 Respuesta enviada');
 }
 
-function handleIceCandidate(data) {
+function handleIceCandidateViewer(data) {
     if (pc) {
         pc.addIceCandidate(new RTCIceCandidate(data.candidate));
         log('🧊 ICE agregado');
     }
 }
 
-// Eventos
+// ============================================
+// EVENT LISTENERS
+// ============================================
 document.addEventListener('DOMContentLoaded', () => {
     elements.startBtn.addEventListener('click', startBroadcast);
     elements.stopBtn.addEventListener('click', stopBroadcast);
     elements.joinBtn.addEventListener('click', joinRoom);
     elements.leaveBtn.addEventListener('click', leaveRoom);
     
-    log('✅ Listo');
+    elements.loginUsername.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') login();
+    });
+    
+    elements.loginPassword.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') login();
+    });
+    
+    log('✅ Eventos configurados');
 });
