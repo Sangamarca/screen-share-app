@@ -1,8 +1,8 @@
 // ============================================
-// CLIENTE CON SELECCIÓN DE ROL - VERSIÓN CORREGIDA
+// CLIENTE CON SELECCIÓN DE ROL - VERSIÓN MULTIVIEWER
 // ============================================
 
-console.log('🚀 Cliente iniciando...');
+console.log('🚀 Cliente multiviewer iniciando...');
 
 // Panel de diagnóstico (siempre visible)
 const diagnosticPanel = document.createElement('div');
@@ -103,7 +103,7 @@ let selectedRole = null;
 let isAuthenticated = false;
 
 // ============================================
-// CONFIGURACIÓN SOLO STUN (SIN TURN PARA EVITAR ERRORES)
+// CONFIGURACIÓN SOLO STUN (SIN TURN)
 // ============================================
 const configuration = {
     iceServers: [
@@ -468,7 +468,7 @@ function connectToServer() {
     });
     
     // ============================================
-    // EVENTO PARA BROADCASTER - CORREGIDO CON MÁS LOGS
+    // EVENTO PARA BROADCASTER - VERSIÓN MULTIVIEWER
     // ============================================
     socket.on('viewer-joined', (data) => {
         const viewerId = data.viewerId;
@@ -481,7 +481,7 @@ function connectToServer() {
         }
         
         if (!localStream) {
-            log('❌ No hay stream local, no puedo crear oferta', 'ERROR');
+            log('❌ No hay stream local', 'ERROR');
             return;
         }
         
@@ -490,11 +490,19 @@ function connectToServer() {
         try {
             const pc = new RTCPeerConnection(configuration);
             
-            // Añadir tracks locales
-            localStream.getTracks().forEach(track => {
+            // ===== PARTE CRÍTICA: AÑADIR TRACKS =====
+            log(`📹 Añadiendo tracks de video/audio para viewer ${viewerId}`, 'INFO');
+            const tracks = localStream.getTracks();
+            log(`📊 Total tracks disponibles: ${tracks.length}`, 'INFO');
+            
+            tracks.forEach((track, index) => {
                 pc.addTrack(track, localStream);
-                log(`➕ Track ${track.kind} añadido para ${viewerId}`, 'INFO');
+                log(`➕ Track ${index + 1}: ${track.kind} añadido para ${viewerId}`, 'SUCCESS');
             });
+            
+            // Verificar que se añadieron
+            const senders = pc.getSenders();
+            log(`📊 Senders después de añadir: ${senders.length}`, 'INFO');
             
             // Manejar ICE candidates
             pc.onicecandidate = (event) => {
@@ -517,20 +525,18 @@ function connectToServer() {
                 }
             };
             
-            // Guardar en el Map
+            // GUARDAR EN MAP ANTES DE CREAR OFERTA
             peerConnections.set(viewerId, pc);
             
-            // Crear oferta para este viewer - CON MÁS LOGS
-            log(`📤 Iniciando createOffer() para ${viewerId}...`, 'INFO');
+            // Crear oferta
+            log(`📤 Creando oferta para viewer ${viewerId}...`, 'INFO');
             
             pc.createOffer()
                 .then(offer => {
-                    log(`✅ createOffer() exitoso para ${viewerId}`, 'SUCCESS');
-                    log(`📄 Offer tipo: ${offer.type}, SDP length: ${offer.sdp.length}`, 'INFO');
+                    log(`✅ Oferta creada para ${viewerId}`, 'SUCCESS');
                     return pc.setLocalDescription(offer);
                 })
                 .then(() => {
-                    log(`✅ setLocalDescription() exitoso para ${viewerId}`, 'SUCCESS');
                     log(`📤 Enviando oferta a ${viewerId}...`, 'INFO');
                     
                     socket.emit('offer', {
@@ -541,15 +547,13 @@ function connectToServer() {
                     log(`✅ Oferta enviada a ${viewerId}`, 'SUCCESS');
                 })
                 .catch(err => {
-                    log(`❌ ERROR en createOffer/setLocalDescription para ${viewerId}: ${err.message}`, 'ERROR');
-                    console.error('Error detallado:', err);
-                    
+                    log(`❌ ERROR: ${err.message}`, 'ERROR');
                     peerConnections.delete(viewerId);
                     pc.close();
                 });
                 
         } catch (err) {
-            log(`❌ ERROR al crear PeerConnection para ${viewerId}: ${err.message}`, 'ERROR');
+            log(`❌ ERROR GRAVE: ${err.message}`, 'ERROR');
         }
     });
     
@@ -694,6 +698,8 @@ async function handleIceCandidate(data) {
                         log(`🧊 Estado ICE viewer ${data.from}: ${pc.iceConnectionState}`, 'INFO');
                     }
                 }, 500);
+            } else {
+                log(`⚠️ No se encontró conexión para viewer ${data.from}`, 'WARN');
             }
         }
     } catch (err) {
