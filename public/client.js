@@ -1,8 +1,8 @@
 // ============================================
-// CLIENTE CON SELECCIÓN DE ROL - VERSIÓN MULTIVIEWER
+// CLIENTE CON SELECCIÓN DE ROL - VERSIÓN MULTIVIEWER FINAL
 // ============================================
 
-console.log('🚀 Cliente multiviewer iniciando...');
+console.log('🚀 Cliente multiviewer final iniciando...');
 
 // Panel de diagnóstico (siempre visible)
 const diagnosticPanel = document.createElement('div');
@@ -468,15 +468,17 @@ function connectToServer() {
     });
     
     // ============================================
-    // EVENTO PARA BROADCASTER - VERSIÓN MULTIVIEWER
+    // EVENTO PARA BROADCASTER - VERSIÓN MULTIVIEWER CON DIAGNÓSTICO
     // ============================================
     socket.on('viewer-joined', (data) => {
         const viewerId = data.viewerId;
-        log(`🔥 NUEVO VIEWER CONECTADO: ${viewerId}`, 'CRITICAL');
+        const viewerNumber = peerConnections.size + 1;
+        
+        log(`🔥 VIEWER #${viewerNumber} CONECTADO: ${viewerId}`, 'CRITICAL');
         log(`👥 Total viewers: ${data.totalViewers}`, 'INFO');
         
         if (!isBroadcaster) {
-            log('❌ No soy broadcaster, ignorando', 'ERROR');
+            log('❌ No soy broadcaster', 'ERROR');
             return;
         }
         
@@ -485,24 +487,39 @@ function connectToServer() {
             return;
         }
         
-        log(`🆕 Creando PeerConnection para viewer ${viewerId}`, 'INFO');
+        log(`📊 Estado actual: ${peerConnections.size} viewers conectados`, 'INFO');
         
         try {
+            log(`🆕 Creando PeerConnection #${viewerNumber} para viewer ${viewerId}`, 'INFO');
             const pc = new RTCPeerConnection(configuration);
             
-            // ===== PARTE CRÍTICA: AÑADIR TRACKS =====
-            log(`📹 Añadiendo tracks de video/audio para viewer ${viewerId}`, 'INFO');
+            // ===== VERIFICAR STREAM LOCAL =====
             const tracks = localStream.getTracks();
-            log(`📊 Total tracks disponibles: ${tracks.length}`, 'INFO');
-            
-            tracks.forEach((track, index) => {
-                pc.addTrack(track, localStream);
-                log(`➕ Track ${index + 1}: ${track.kind} añadido para ${viewerId}`, 'SUCCESS');
+            log(`📹 Stream local tiene ${tracks.length} tracks:`, 'INFO');
+            tracks.forEach((track, i) => {
+                log(`   Track ${i+1}: ${track.kind} (enabled: ${track.enabled}, readyState: ${track.readyState})`, 'INFO');
             });
             
-            // Verificar que se añadieron
-            const senders = pc.getSenders();
-            log(`📊 Senders después de añadir: ${senders.length}`, 'INFO');
+            if (tracks.length === 0) {
+                log('❌ ERROR: No hay tracks en el stream local', 'ERROR');
+                return;
+            }
+            
+            // ===== AÑADIR TRACKS =====
+            tracks.forEach((track, index) => {
+                try {
+                    pc.addTrack(track, localStream);
+                    log(`✅ Track ${index + 1} (${track.kind}) añadido correctamente`, 'SUCCESS');
+                } catch (err) {
+                    log(`❌ Error añadiendo track ${track.kind}: ${err.message}`, 'ERROR');
+                }
+            });
+            
+            // Verificar senders después de añadir
+            setTimeout(() => {
+                const senders = pc.getSenders();
+                log(`📊 Senders después de 1s: ${senders.length}`, 'INFO');
+            }, 1000);
             
             // Manejar ICE candidates
             pc.onicecandidate = (event) => {
@@ -522,14 +539,32 @@ function connectToServer() {
                 }
                 if (pc.iceConnectionState === 'failed') {
                     log(`❌ ICE failed para viewer ${viewerId}`, 'ERROR');
+                    
+                    // Reintentar crear oferta si falla
+                    log(`🔄 Reintentando crear oferta para ${viewerId}...`, 'INFO');
+                    setTimeout(() => {
+                        if (pc.iceConnectionState === 'failed') {
+                            pc.createOffer()
+                                .then(offer => pc.setLocalDescription(offer))
+                                .then(() => {
+                                    socket.emit('offer', {
+                                        target: viewerId,
+                                        offer: pc.localDescription
+                                    });
+                                    log(`📤 Reintento de oferta enviado a ${viewerId}`, 'SUCCESS');
+                                })
+                                .catch(err => log(`❌ Error en reintento: ${err.message}`, 'ERROR'));
+                        }
+                    }, 2000);
                 }
             };
             
-            // GUARDAR EN MAP ANTES DE CREAR OFERTA
+            // Guardar en Map
             peerConnections.set(viewerId, pc);
+            log(`💾 Viewer ${viewerId} guardado en Map (total: ${peerConnections.size})`, 'INFO');
             
             // Crear oferta
-            log(`📤 Creando oferta para viewer ${viewerId}...`, 'INFO');
+            log(`📤 Creando oferta para viewer #${viewerNumber} (${viewerId})...`, 'INFO');
             
             pc.createOffer()
                 .then(offer => {
@@ -547,7 +582,7 @@ function connectToServer() {
                     log(`✅ Oferta enviada a ${viewerId}`, 'SUCCESS');
                 })
                 .catch(err => {
-                    log(`❌ ERROR: ${err.message}`, 'ERROR');
+                    log(`❌ ERROR en createOffer: ${err.message}`, 'ERROR');
                     peerConnections.delete(viewerId);
                     pc.close();
                 });
