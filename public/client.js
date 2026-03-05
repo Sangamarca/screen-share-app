@@ -1,10 +1,10 @@
 // ============================================
-// CLIENTE FINAL - CON MENSAJE VISIBLE EN VIEWER
+// CLIENTE FINAL - CON TURN PARA DATOS MÓVILES
 // ============================================
 
-console.log('🚀 Cliente final iniciando...');
+console.log('🚀 Cliente final con TURN iniciando...');
 
-// Panel de diagnóstico simple
+// Panel de diagnóstico
 const panel = document.createElement('div');
 panel.style.cssText = `
     position: fixed;
@@ -61,10 +61,43 @@ const elements = {
     statusText: document.getElementById('statusText')
 };
 
-// Verificar elementos
-for (const [key, el] of Object.entries(elements)) {
-    if (!el) log(`⚠️ Elemento no encontrado: ${key}`);
-}
+// ============================================
+// CONFIGURACIÓN STUN/TURN PARA DATOS MÓVILES
+// ============================================
+const servers = {
+    iceServers: [
+        // STUN servers
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' },
+        { urls: 'stun:stun3.l.google.com:19302' },
+        { urls: 'stun:stun4.l.google.com:19302' },
+        
+        // TURN servers funcionales en datos móviles
+        {
+            urls: 'turn:openrelay.metered.ca:80',
+            username: 'openrelayproject',
+            credential: 'openrelayproject'
+        },
+        {
+            urls: 'turn:openrelay.metered.ca:443',
+            username: 'openrelayproject',
+            credential: 'openrelayproject'
+        },
+        {
+            urls: 'turn:openrelay.metered.ca:5349',
+            username: 'openrelayproject',
+            credential: 'openrelayproject'
+        },
+        {
+            urls: 'turns:openrelay.metered.ca:443',
+            username: 'openrelayproject',
+            credential: 'openrelayproject'
+        }
+    ],
+    iceTransportPolicy: 'all',
+    iceCandidatePoolSize: 10
+};
 
 // ============================================
 // ESTADO
@@ -76,16 +109,6 @@ let isBroadcaster = false;
 let currentRoom = null;
 let isAuthenticated = false;
 let selectedRole = null;
-
-// ============================================
-// CONFIGURACIÓN STUN
-// ============================================
-const servers = {
-    iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' }
-    ]
-};
 
 // ============================================
 // FUNCIONES DE UTILIDAD
@@ -320,7 +343,7 @@ function handleIceCandidate(data) {
 }
 
 // ============================================
-// VIEWER (ESPECTADOR) - CON MENSAJE VISIBLE
+// VIEWER (ESPECTADOR)
 // ============================================
 function initViewer() {
     log('👁️ Modo espectador activado');
@@ -335,14 +358,9 @@ function initViewer() {
         log(`✅ Unido a sala: ${data.roomId}`);
         updateStatus(`Unido a ${data.roomId}`);
         
-        // Mensaje visible de espera
         if (elements.remoteOverlay) {
-            elements.remoteOverlay.innerHTML = '<span style="font-size:16px;">⏳ Esperando señal del transmisor...</span>';
+            elements.remoteOverlay.innerHTML = '<span>⏳ Esperando señal del transmisor...</span>';
             elements.remoteOverlay.style.display = 'flex';
-            elements.remoteOverlay.style.backgroundColor = 'rgba(0,0,0,0.8)';
-            elements.remoteOverlay.style.color = 'white';
-            elements.remoteOverlay.style.fontSize = '16px';
-            elements.remoteOverlay.style.cursor = 'default';
         }
     });
     
@@ -363,7 +381,7 @@ function joinRoom() {
     elements.leaveBtn.disabled = false;
     
     if (elements.remoteOverlay) {
-        elements.remoteOverlay.innerHTML = '<span style="font-size:16px;">⏳ Conectando al transmisor...</span>';
+        elements.remoteOverlay.innerHTML = '<span>⏳ Conectando al transmisor...</span>';
         elements.remoteOverlay.style.display = 'flex';
     }
     
@@ -379,7 +397,7 @@ function leaveRoom() {
     }
     elements.remoteVideo.srcObject = null;
     if (elements.remoteOverlay) {
-        elements.remoteOverlay.innerHTML = '<span style="font-size:16px;">📺 Esperando transmisión...</span>';
+        elements.remoteOverlay.innerHTML = '<span>📺 Esperando transmisión...</span>';
         elements.remoteOverlay.style.display = 'flex';
     }
     elements.joinBtn.disabled = false;
@@ -397,20 +415,14 @@ async function handleOffer(data) {
         log('🎥 VIDEO RECIBIDO!');
         elements.remoteVideo.srcObject = event.streams[0];
         
-        // MOSTRAR MENSAJE CLARAMENTE
         if (elements.remoteOverlay) {
             elements.remoteOverlay.innerHTML = '<span style="font-size:20px; font-weight:bold; color:#00ff00;">👉 TOCA AQUÍ PARA VER EL VIDEO 👈</span>';
             elements.remoteOverlay.style.display = 'flex';
-            elements.remoteOverlay.style.backgroundColor = 'rgba(0,0,0,0.9)';
-            elements.remoteOverlay.style.color = '#00ff00';
-            elements.remoteOverlay.style.fontSize = '20px';
             elements.remoteOverlay.style.cursor = 'pointer';
-            elements.remoteOverlay.style.zIndex = '1000';
         }
         
         updateStatus('✅ Video listo - toca la pantalla');
         
-        // REPRODUCIR AL HACER CLIC EN EL OVERLAY
         const playVideo = () => {
             elements.remoteVideo.play()
                 .then(() => {
@@ -420,33 +432,13 @@ async function handleOffer(data) {
                     log('✅ Video reproduciéndose');
                     updateStatus('✅ Video reproduciéndose');
                 })
-                .catch(e => {
-                    log(`❌ Error: ${e.message}`);
-                    updateStatus('❌ Error al reproducir');
-                });
+                .catch(e => log(`❌ Error: ${e.message}`));
         };
         
-        // Click en overlay
         if (elements.remoteOverlay) {
             elements.remoteOverlay.addEventListener('click', playVideo, { once: true });
         }
-        
-        // Click en video (por si acaso)
         elements.remoteVideo.addEventListener('click', playVideo, { once: true });
-        
-        // Auto-intento después de 1 segundo (por si el navegador lo permite)
-        setTimeout(() => {
-            elements.remoteVideo.play()
-                .then(() => {
-                    if (elements.remoteOverlay) {
-                        elements.remoteOverlay.style.display = 'none';
-                    }
-                    log('✅ Auto-play exitoso');
-                })
-                .catch(() => {
-                    // Ignorar, ya tenemos el mensaje
-                });
-        }, 1000);
     };
     
     pc.onicecandidate = (event) => {
