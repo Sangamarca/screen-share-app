@@ -1,8 +1,8 @@
 // ============================================
-// CLIENTE SIMPLIFICADO - CON LOGIN FUNCIONAL
+// CLIENTE FINAL - CON MENSAJE VISIBLE EN VIEWER
 // ============================================
 
-console.log('🚀 Cliente simplificado iniciando...');
+console.log('🚀 Cliente final iniciando...');
 
 // Panel de diagnóstico simple
 const panel = document.createElement('div');
@@ -32,9 +32,11 @@ function log(msg) {
     }
 }
 
-log('🔧 Iniciando...');
+log('🔧 Panel de diagnóstico activado');
 
-// Elementos
+// ============================================
+// ELEMENTOS DEL DOM
+// ============================================
 const elements = {
     localVideo: document.getElementById('localVideo'),
     remoteVideo: document.getElementById('remoteVideo'),
@@ -54,10 +56,19 @@ const elements = {
     localVideoCard: document.getElementById('localVideoCard'),
     loginUsername: document.getElementById('loginUsername'),
     loginPassword: document.getElementById('loginPassword'),
-    loginError: document.getElementById('loginError')
+    loginError: document.getElementById('loginError'),
+    viewerCount: document.getElementById('viewerCount'),
+    statusText: document.getElementById('statusText')
 };
 
-// Estado
+// Verificar elementos
+for (const [key, el] of Object.entries(elements)) {
+    if (!el) log(`⚠️ Elemento no encontrado: ${key}`);
+}
+
+// ============================================
+// ESTADO
+// ============================================
 let socket = null;
 let localStream = null;
 let pc = null;
@@ -66,13 +77,25 @@ let currentRoom = null;
 let isAuthenticated = false;
 let selectedRole = null;
 
-// Configuración STUN
+// ============================================
+// CONFIGURACIÓN STUN
+// ============================================
 const servers = {
     iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' }
     ]
 };
+
+// ============================================
+// FUNCIONES DE UTILIDAD
+// ============================================
+function updateStatus(msg) {
+    log(msg);
+    if (elements.statusText) {
+        elements.statusText.textContent = msg;
+    }
+}
 
 // ============================================
 // SELECCIÓN DE ROL
@@ -180,22 +203,31 @@ window.logout = async function() {
 };
 
 // ============================================
-// BROADCASTER
+// BROADCASTER (ADMIN)
 // ============================================
 function initBroadcaster() {
-    log('🎥 Modo broadcaster');
+    log('🎥 Modo broadcaster activado');
     socket = io();
     
-    socket.on('connect', () => log('✅ Conectado al servidor'));
+    socket.on('connect', () => {
+        log('✅ Conectado al servidor');
+        updateStatus('Conectado');
+    });
+    
     socket.on('viewer-joined', handleViewerJoined);
     socket.on('answer', handleAnswer);
     socket.on('ice-candidate', handleIceCandidate);
+    socket.on('viewers-update', (data) => {
+        if (elements.viewerCount) {
+            elements.viewerCount.textContent = `${data.total} espectadores`;
+        }
+    });
 }
 
 async function startBroadcast() {
     try {
         const roomName = elements.roomId.value.trim() || 'sala1';
-        log('📤 Solicitando pantalla...');
+        log('📤 Solicitando captura de pantalla...');
         
         localStream = await navigator.mediaDevices.getDisplayMedia({
             video: true,
@@ -213,6 +245,7 @@ async function startBroadcast() {
         
         socket.emit('broadcaster-join', roomName);
         log(`📡 Transmitiendo en ${roomName}`);
+        updateStatus(`📡 Transmitiendo`);
         
         localStream.getVideoTracks()[0].onended = () => stopBroadcast();
         
@@ -236,11 +269,13 @@ function stopBroadcast() {
     elements.stopBtn.disabled = true;
     isBroadcaster = false;
     log('⏹️ Transmisión detenida');
+    updateStatus('⏹️ Transmisión detenida');
 }
 
 function handleViewerJoined(data) {
     const viewerId = data.viewerId;
-    log(`👁️ Nuevo viewer: ${viewerId}`);
+    log(`👁️ Nuevo viewer conectado: ${viewerId}`);
+    updateStatus(`👁️ Viewer conectado`);
     
     if (!localStream) {
         log('❌ No hay stream local');
@@ -271,44 +306,70 @@ function handleViewerJoined(data) {
                 target: viewerId,
                 offer: pc.localDescription
             });
-            log('📤 Oferta enviada');
+            log('📤 Oferta enviada al viewer');
         })
         .catch(err => log(`❌ Error: ${err.message}`));
 }
 
 function handleAnswer(data) {
-    log(`📥 Respuesta recibida de ${data.from}`);
-    // Aquí iría la lógica para manejar la respuesta
+    log(`📥 Respuesta recibida de viewer ${data.from}`);
 }
 
 function handleIceCandidate(data) {
     log(`🧊 ICE candidate de ${data.from}`);
-    // Aquí iría la lógica para manejar ICE
 }
 
 // ============================================
-// VIEWER
+// VIEWER (ESPECTADOR) - CON MENSAJE VISIBLE
 // ============================================
 function initViewer() {
-    log('👁️ Modo viewer');
+    log('👁️ Modo espectador activado');
     socket = io();
     
-    socket.on('connect', () => log('✅ Conectado al servidor'));
+    socket.on('connect', () => {
+        log('✅ Conectado al servidor');
+        updateStatus('Conectado');
+    });
+    
     socket.on('room-joined', (data) => {
         log(`✅ Unido a sala: ${data.roomId}`);
-        elements.remoteOverlay.style.display = 'none';
+        updateStatus(`Unido a ${data.roomId}`);
+        
+        // Mensaje visible de espera
+        if (elements.remoteOverlay) {
+            elements.remoteOverlay.innerHTML = '<span style="font-size:16px;">⏳ Esperando señal del transmisor...</span>';
+            elements.remoteOverlay.style.display = 'flex';
+            elements.remoteOverlay.style.backgroundColor = 'rgba(0,0,0,0.8)';
+            elements.remoteOverlay.style.color = 'white';
+            elements.remoteOverlay.style.fontSize = '16px';
+            elements.remoteOverlay.style.cursor = 'default';
+        }
     });
+    
     socket.on('offer', handleOffer);
     socket.on('ice-candidate', handleIceCandidateViewer);
+    socket.on('viewers-update', (data) => {
+        if (elements.viewerCount) {
+            elements.viewerCount.textContent = `${data.total} espectadores`;
+        }
+    });
 }
 
 function joinRoom() {
     const room = elements.viewRoomId.value.trim() || 'sala1';
-    log(`👋 Uniéndose a ${room}`);
+    log(`👋 Uniéndose a sala: ${room}`);
+    
     elements.joinBtn.disabled = true;
     elements.leaveBtn.disabled = false;
+    
+    if (elements.remoteOverlay) {
+        elements.remoteOverlay.innerHTML = '<span style="font-size:16px;">⏳ Conectando al transmisor...</span>';
+        elements.remoteOverlay.style.display = 'flex';
+    }
+    
     currentRoom = room;
     socket.emit('viewer-join', room);
+    updateStatus(`Uniéndose a ${room}...`);
 }
 
 function leaveRoom() {
@@ -317,24 +378,75 @@ function leaveRoom() {
         pc = null;
     }
     elements.remoteVideo.srcObject = null;
-    elements.remoteOverlay.style.display = 'flex';
+    if (elements.remoteOverlay) {
+        elements.remoteOverlay.innerHTML = '<span style="font-size:16px;">📺 Esperando transmisión...</span>';
+        elements.remoteOverlay.style.display = 'flex';
+    }
     elements.joinBtn.disabled = false;
     elements.leaveBtn.disabled = true;
     log('👋 Desconectado');
+    updateStatus('Desconectado');
 }
 
 async function handleOffer(data) {
-    log('📥 Oferta recibida');
+    log('📥 OFERTA RECIBIDA!');
     
     pc = new RTCPeerConnection(servers);
     
     pc.ontrack = (event) => {
         log('🎥 VIDEO RECIBIDO!');
         elements.remoteVideo.srcObject = event.streams[0];
-        elements.remoteVideo.play()
-            .then(() => log('✅ Video reproduciéndose'))
-            .catch(e => log(`❌ Error play: ${e.message}`));
-        elements.remoteOverlay.style.display = 'none';
+        
+        // MOSTRAR MENSAJE CLARAMENTE
+        if (elements.remoteOverlay) {
+            elements.remoteOverlay.innerHTML = '<span style="font-size:20px; font-weight:bold; color:#00ff00;">👉 TOCA AQUÍ PARA VER EL VIDEO 👈</span>';
+            elements.remoteOverlay.style.display = 'flex';
+            elements.remoteOverlay.style.backgroundColor = 'rgba(0,0,0,0.9)';
+            elements.remoteOverlay.style.color = '#00ff00';
+            elements.remoteOverlay.style.fontSize = '20px';
+            elements.remoteOverlay.style.cursor = 'pointer';
+            elements.remoteOverlay.style.zIndex = '1000';
+        }
+        
+        updateStatus('✅ Video listo - toca la pantalla');
+        
+        // REPRODUCIR AL HACER CLIC EN EL OVERLAY
+        const playVideo = () => {
+            elements.remoteVideo.play()
+                .then(() => {
+                    if (elements.remoteOverlay) {
+                        elements.remoteOverlay.style.display = 'none';
+                    }
+                    log('✅ Video reproduciéndose');
+                    updateStatus('✅ Video reproduciéndose');
+                })
+                .catch(e => {
+                    log(`❌ Error: ${e.message}`);
+                    updateStatus('❌ Error al reproducir');
+                });
+        };
+        
+        // Click en overlay
+        if (elements.remoteOverlay) {
+            elements.remoteOverlay.addEventListener('click', playVideo, { once: true });
+        }
+        
+        // Click en video (por si acaso)
+        elements.remoteVideo.addEventListener('click', playVideo, { once: true });
+        
+        // Auto-intento después de 1 segundo (por si el navegador lo permite)
+        setTimeout(() => {
+            elements.remoteVideo.play()
+                .then(() => {
+                    if (elements.remoteOverlay) {
+                        elements.remoteOverlay.style.display = 'none';
+                    }
+                    log('✅ Auto-play exitoso');
+                })
+                .catch(() => {
+                    // Ignorar, ya tenemos el mensaje
+                });
+        }, 1000);
     };
     
     pc.onicecandidate = (event) => {
@@ -346,28 +458,69 @@ async function handleOffer(data) {
         }
     };
     
-    await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
+    pc.oniceconnectionstatechange = () => {
+        log(`🧊 ICE state: ${pc.iceConnectionState}`);
+        if (pc.iceConnectionState === 'connected') {
+            updateStatus('✅ Conexión establecida');
+        }
+    };
     
-    socket.emit('answer', {
-        target: data.from,
-        answer: answer
-    });
-    log('📤 Respuesta enviada');
+    try {
+        await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+        log('✅ Remote description set');
+        
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        log('✅ Answer creada');
+        
+        socket.emit('answer', {
+            target: data.from,
+            answer: answer
+        });
+        log('📤 Respuesta enviada');
+        
+    } catch (err) {
+        log(`❌ Error: ${err.message}`);
+    }
 }
 
 function handleIceCandidateViewer(data) {
     if (pc) {
-        pc.addIceCandidate(new RTCIceCandidate(data.candidate));
-        log('🧊 ICE agregado');
+        pc.addIceCandidate(new RTCIceCandidate(data.candidate))
+            .then(() => log('🧊 ICE agregado'))
+            .catch(err => log(`❌ Error ICE: ${err.message}`));
     }
 }
+
+// ============================================
+// PANTALLA COMPLETA
+// ============================================
+window.toggleFullscreen = function() {
+    if (!elements.remoteVideo) return;
+    
+    if (!document.fullscreenElement) {
+        if (elements.remoteVideo.requestFullscreen) {
+            elements.remoteVideo.requestFullscreen();
+        } else if (elements.remoteVideo.webkitRequestFullscreen) {
+            elements.remoteVideo.webkitRequestFullscreen();
+        }
+        log('⛶ Pantalla completa activada');
+    } else {
+        if (document.exitFullscreen) {
+            document.exitFullscreen();
+        } else if (document.webkitExitFullscreen) {
+            document.webkitExitFullscreen();
+        }
+        log('⛶ Saliendo de pantalla completa');
+    }
+};
 
 // ============================================
 // EVENT LISTENERS
 // ============================================
 document.addEventListener('DOMContentLoaded', () => {
+    log('✅ DOM cargado, configurando eventos...');
+    
     elements.startBtn.addEventListener('click', startBroadcast);
     elements.stopBtn.addEventListener('click', stopBroadcast);
     elements.joinBtn.addEventListener('click', joinRoom);
