@@ -1,8 +1,8 @@
 // ============================================
-// CLIENTE FINAL - CON TURN DE CLOUDFLARE
+// CLIENTE FINAL - SOLO STUN (SIN TURN)
 // ============================================
 
-console.log('🚀 Cliente final con Cloudflare TURN iniciando...');
+console.log('🚀 Cliente final iniciando...');
 
 // Panel de diagnóstico
 const panel = document.createElement('div');
@@ -62,21 +62,18 @@ const elements = {
 };
 
 // ============================================
-// CONFIGURACIÓN STUN/TURN - CLOUDFLARE (GRATIS Y CONFIABLE)
+// CONFIGURACIÓN SOLO STUN
 // ============================================
 const servers = {
     iceServers: [
-        // STUN servers (para conexión directa)
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
         { urls: 'stun:stun2.l.google.com:19302' },
         { urls: 'stun:stun3.l.google.com:19302' },
         { urls: 'stun:stun4.l.google.com:19302' },
-        
-        // TURN de Cloudflare (gratis, sin autenticación)
-        { urls: 'turn:turn.cloudflare.com:3478?transport=udp' },
-        { urls: 'turn:turn.cloudflare.com:3478?transport=tcp' },
-        { urls: 'turns:turn.cloudflare.com:5349?transport=tcp' }
+        { urls: 'stun:stun.ekiga.net' },
+        { urls: 'stun:stun.ideasip.com' },
+        { urls: 'stun:stun.schlund.de' }
     ],
     iceTransportPolicy: 'all',
     iceCandidatePoolSize: 10
