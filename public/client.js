@@ -1,8 +1,8 @@
 // ============================================
-// CLIENTE FINAL - CON TURN PARA DATOS MÓVILES
+// CLIENTE FINAL - CON TURN DE CLOUDFLARE
 // ============================================
 
-console.log('🚀 Cliente final con TURN iniciando...');
+console.log('🚀 Cliente final con Cloudflare TURN iniciando...');
 
 // Panel de diagnóstico
 const panel = document.createElement('div');
@@ -62,38 +62,21 @@ const elements = {
 };
 
 // ============================================
-// CONFIGURACIÓN STUN/TURN PARA DATOS MÓVILES
+// CONFIGURACIÓN STUN/TURN - CLOUDFLARE (GRATIS Y CONFIABLE)
 // ============================================
 const servers = {
     iceServers: [
-        // STUN servers
+        // STUN servers (para conexión directa)
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
         { urls: 'stun:stun2.l.google.com:19302' },
         { urls: 'stun:stun3.l.google.com:19302' },
         { urls: 'stun:stun4.l.google.com:19302' },
         
-        // TURN servers funcionales en datos móviles
-        {
-            urls: 'turn:openrelay.metered.ca:80',
-            username: 'openrelayproject',
-            credential: 'openrelayproject'
-        },
-        {
-            urls: 'turn:openrelay.metered.ca:443',
-            username: 'openrelayproject',
-            credential: 'openrelayproject'
-        },
-        {
-            urls: 'turn:openrelay.metered.ca:5349',
-            username: 'openrelayproject',
-            credential: 'openrelayproject'
-        },
-        {
-            urls: 'turns:openrelay.metered.ca:443',
-            username: 'openrelayproject',
-            credential: 'openrelayproject'
-        }
+        // TURN de Cloudflare (gratis, sin autenticación)
+        { urls: 'turn:turn.cloudflare.com:3478?transport=udp' },
+        { urls: 'turn:turn.cloudflare.com:3478?transport=tcp' },
+        { urls: 'turns:turn.cloudflare.com:5349?transport=tcp' }
     ],
     iceTransportPolicy: 'all',
     iceCandidatePoolSize: 10
