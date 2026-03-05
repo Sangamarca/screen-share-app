@@ -1,5 +1,5 @@
 // ============================================
-// CLIENTE FINAL - SOLO STUN (SIN TURN)
+// CLIENTE FINAL - CON OVERLAY CLICKEABLE
 // ============================================
 
 console.log('🚀 Cliente final iniciando...');
@@ -323,7 +323,7 @@ function handleIceCandidate(data) {
 }
 
 // ============================================
-// VIEWER (ESPECTADOR)
+// VIEWER (ESPECTADOR) - CON OVERLAY CLICKEABLE
 // ============================================
 function initViewer() {
     log('👁️ Modo espectador activado');
@@ -341,6 +341,7 @@ function initViewer() {
         if (elements.remoteOverlay) {
             elements.remoteOverlay.innerHTML = '<span>⏳ Esperando señal del transmisor...</span>';
             elements.remoteOverlay.style.display = 'flex';
+            elements.remoteOverlay.style.pointerEvents = 'auto';
         }
     });
     
@@ -363,6 +364,7 @@ function joinRoom() {
     if (elements.remoteOverlay) {
         elements.remoteOverlay.innerHTML = '<span>⏳ Conectando al transmisor...</span>';
         elements.remoteOverlay.style.display = 'flex';
+        elements.remoteOverlay.style.pointerEvents = 'auto';
     }
     
     currentRoom = room;
@@ -379,6 +381,7 @@ function leaveRoom() {
     if (elements.remoteOverlay) {
         elements.remoteOverlay.innerHTML = '<span>📺 Esperando transmisión...</span>';
         elements.remoteOverlay.style.display = 'flex';
+        elements.remoteOverlay.style.pointerEvents = 'auto';
     }
     elements.joinBtn.disabled = false;
     elements.leaveBtn.disabled = true;
@@ -395,30 +398,61 @@ async function handleOffer(data) {
         log('🎥 VIDEO RECIBIDO!');
         elements.remoteVideo.srcObject = event.streams[0];
         
+        // CONFIGURACIÓN CORRECTA DEL OVERLAY - CLICKEABLE
         if (elements.remoteOverlay) {
-            elements.remoteOverlay.innerHTML = '<span style="font-size:20px; font-weight:bold; color:#00ff00;">👉 TOCA AQUÍ PARA VER EL VIDEO 👈</span>';
+            // Estilos obligatorios para que funcione el click
+            elements.remoteOverlay.style.position = 'absolute';
+            elements.remoteOverlay.style.top = '0';
+            elements.remoteOverlay.style.left = '0';
+            elements.remoteOverlay.style.width = '100%';
+            elements.remoteOverlay.style.height = '100%';
             elements.remoteOverlay.style.display = 'flex';
+            elements.remoteOverlay.style.alignItems = 'center';
+            elements.remoteOverlay.style.justifyContent = 'center';
+            elements.remoteOverlay.style.backgroundColor = 'rgba(0,0,0,0.9)';
+            elements.remoteOverlay.style.zIndex = '1000';
             elements.remoteOverlay.style.cursor = 'pointer';
+            elements.remoteOverlay.style.pointerEvents = 'auto'; // ¡CLAVE!
+            
+            elements.remoteOverlay.innerHTML = '<span style="font-size:24px; font-weight:bold; color:#00ff00; background:black; padding:20px 30px; border-radius:15px; border:3px solid #00ff00; box-shadow:0 0 20px #00ff00;">👉 TOCA AQUÍ PARA VER EL VIDEO 👈</span>';
+            
+            // Función para reproducir
+            const playVideo = () => {
+                elements.remoteVideo.play()
+                    .then(() => {
+                        if (elements.remoteOverlay) {
+                            elements.remoteOverlay.style.display = 'none';
+                        }
+                        log('✅ Video reproduciéndose');
+                        updateStatus('✅ Video reproduciéndose');
+                    })
+                    .catch(e => log(`❌ Error: ${e.message}`));
+            };
+            
+            // Eliminar listeners anteriores
+            elements.remoteOverlay.replaceWith(elements.remoteOverlay.cloneNode(true));
+            // Obtener nueva referencia
+            elements.remoteOverlay = document.getElementById('remoteOverlay');
+            
+            // Añadir listener al overlay
+            elements.remoteOverlay.addEventListener('click', playVideo);
+            
+            // También al video por si acaso
+            elements.remoteVideo.addEventListener('click', playVideo);
+            
+            // Feedback táctil
+            elements.remoteOverlay.addEventListener('touchstart', () => {
+                elements.remoteOverlay.style.transform = 'scale(0.95)';
+            });
+            elements.remoteOverlay.addEventListener('touchend', () => {
+                elements.remoteOverlay.style.transform = 'scale(1)';
+            });
+            elements.remoteOverlay.addEventListener('touchcancel', () => {
+                elements.remoteOverlay.style.transform = 'scale(1)';
+            });
         }
         
         updateStatus('✅ Video listo - toca la pantalla');
-        
-        const playVideo = () => {
-            elements.remoteVideo.play()
-                .then(() => {
-                    if (elements.remoteOverlay) {
-                        elements.remoteOverlay.style.display = 'none';
-                    }
-                    log('✅ Video reproduciéndose');
-                    updateStatus('✅ Video reproduciéndose');
-                })
-                .catch(e => log(`❌ Error: ${e.message}`));
-        };
-        
-        if (elements.remoteOverlay) {
-            elements.remoteOverlay.addEventListener('click', playVideo, { once: true });
-        }
-        elements.remoteVideo.addEventListener('click', playVideo, { once: true });
     };
     
     pc.onicecandidate = (event) => {
